@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CartaoCredito } from '@/types';
+import { Cartao } from '@/types';
 import { addMonths, format } from 'date-fns';
 
 interface AdvancedFormProps {
@@ -20,7 +20,7 @@ export function AdvancedTransactionForm({ userId, onSuccess }: AdvancedFormProps
   const [responsavel, setResponsavel] = useState(RESPONSAVEIS[0]);
   const [parcelas, setParcelas] = useState(1);
   const [cartaoId, setCartaoId] = useState<string>('');
-  const [cartoes, setCartoes] = useState<CartaoCredito[]>([]);
+  const [cartoes, setCartoes] = useState<Cartao[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

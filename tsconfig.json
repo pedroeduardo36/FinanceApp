@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "jsx": "react-jsx",
+    "skipLibCheck": true,
     // ... outras configurações existentes ...
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",

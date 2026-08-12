@@ -1,16 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import path from 'path' // Você precisa importar o path
+import path from 'path'
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
   ],
+  // ADICIONE ESTA LINHA AQUI:
+  base: '/FinanceApp/', 
+  
   resolve: {
     alias: {
-      // Isso diz ao Vite: "Toda vez que ver @, traduza para a pasta src"
       '@': path.resolve(__dirname, './src'),
     },
   },
