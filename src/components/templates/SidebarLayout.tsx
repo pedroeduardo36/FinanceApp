@@ -1,16 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
-  LayoutDashboard, 
-  ArrowRightLeft, 
-  CreditCard, 
-  CalendarDays, 
-  BarChart3, 
-  PiggyBank, 
-  Tags,
-  LogOut,
-  Menu,
-  X,
-  Wallet
+  LayoutDashboard, ArrowRightLeft, CreditCard, CalendarDays, 
+  BarChart3, PiggyBank, Tags, LogOut 
 } from 'lucide-react';
 
 export type TabId = 'painel' | 'transacoes' | 'cartoes' | 'recorrentes' | 'relatorios' | 'economias' | 'categorias';
@@ -24,74 +15,37 @@ interface SidebarLayoutProps {
 }
 
 export function SidebarLayout({ children, activeTab, onTabChange, onLogout, userEmail }: SidebarLayoutProps) {
-  // Estado para controlar o menu no celular
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
   const menuItems: { id: TabId; label: string; icon: React.ElementType }[] = [
-    { id: 'painel', label: 'Painel Geral', icon: LayoutDashboard },
+    { id: 'painel', label: 'Painel', icon: LayoutDashboard },
     { id: 'transacoes', label: 'Transações', icon: ArrowRightLeft },
-    { id: 'cartoes', label: 'Meus Cartões', icon: CreditCard },
-    { id: 'recorrentes', label: 'Custos Fixos', icon: CalendarDays },
-    { id: 'economias', label: 'Caixinhas (Metas)', icon: PiggyBank },
+    { id: 'cartoes', label: 'Cartões', icon: CreditCard },
+    { id: 'recorrentes', label: 'Compromissos', icon: CalendarDays },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
+    { id: 'economias', label: 'Economias', icon: PiggyBank },
     { id: 'categorias', label: 'Categorias', icon: Tags },
   ];
 
-  // Função para fechar o menu ao clicar em um item no celular
-  const handleTabClick = (id: TabId) => {
-    onTabChange(id);
-    setIsMobileMenuOpen(false);
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex">
       
-      {/* HEADER MOBILE (Aparece apenas em telas pequenas) */}
-      <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center sticky top-0 z-40 shadow-md">
-        <div className="flex items-center gap-2">
-          <Wallet className="text-emerald-400" size={24} />
-          <span className="font-bold text-lg tracking-wide">Finance<span className="text-emerald-400">App</span></span>
-        </div>
-        <button 
-          onClick={() => setIsMobileMenuOpen(true)} 
-          className="text-slate-300 hover:text-white p-1"
-        >
-          <Menu size={28} />
-        </button>
-      </div>
-
-      {/* OVERLAY ESCURO DO MOBILE */}
-      {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 z-40 md:hidden animate-in fade-in duration-200"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* SIDEBAR (Menu Lateral) - Fixo no PC, Gaveta no Mobile */}
-      <aside className={`
-        fixed md:static inset-y-0 left-0 z-50 w-72 bg-slate-900 text-slate-300 flex flex-col transition-transform duration-300 ease-in-out
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-      `}>
-        {/* Topo da Sidebar */}
-        <div className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Wallet className="text-emerald-400" size={28} />
-            <h1 className="text-2xl font-bold text-white tracking-wide">
-              Finance<span className="text-emerald-400">App</span>
-            </h1>
+      {/* SIDEBAR: w-16 no celular (apenas ícones), w-64 no Computador */}
+      <aside className="fixed inset-y-0 left-0 z-50 flex flex-col bg-[#1A5336] text-white w-16 md:w-64 transition-all duration-300 ease-in-out shadow-xl">
+        
+        {/* Topo / Logo */}
+        <div className="p-4 flex flex-col items-center md:items-start border-b border-white/10 shrink-0 min-h-[72px] justify-center">
+          {/* Aparece só no PC */}
+          <div className="hidden md:block w-full">
+            <h1 className="text-xl font-bold tracking-wider uppercase truncate">Finance App</h1>
+            <p className="text-xs text-emerald-300 truncate">Gestão Pessoal</p>
           </div>
-          {/* Botão de Fechar no Mobile */}
-          <button 
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="md:hidden text-slate-400 hover:text-white"
-          >
-            <X size={24} />
-          </button>
+          {/* Aparece só no Mobile (Sigla) */}
+          <div className="md:hidden font-bold text-xl tracking-tighter text-emerald-300">
+            FA
+          </div>
         </div>
 
-        {/* Links do Menu */}
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto py-4">
+        {/* Navegação */}
+        <nav className="flex-1 overflow-y-auto py-4 flex flex-col gap-2 px-2 custom-scrollbar">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -99,43 +53,42 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
             return (
               <button
                 key={item.id}
-                onClick={() => handleTabClick(item.id)}
+                onClick={() => onTabChange(item.id)}
+                title={item.label} // Dica de ferramenta no celular ao segurar
                 className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium text-sm
-                  ${isActive 
-                    ? 'bg-emerald-500/10 text-emerald-400' 
-                    : 'hover:bg-slate-800 hover:text-white'}
+                  flex items-center justify-center md:justify-start gap-3 p-3 rounded-lg transition-all duration-200
+                  ${isActive ? 'bg-white/20 font-semibold' : 'hover:bg-white/10 opacity-70 hover:opacity-100'}
                 `}
               >
-                <Icon size={20} className={isActive ? 'text-emerald-400' : 'text-slate-400'} />
-                {item.label}
+                <Icon size={20} className="shrink-0" />
+                {/* Texto do menu: Oculto no celular, visível no PC */}
+                <span className="hidden md:inline-block text-sm whitespace-nowrap">{item.label}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* Rodapé da Sidebar (Usuário e Logout) */}
-        <div className="p-4 border-t border-slate-800">
-          <div className="px-4 py-3 bg-slate-800/50 rounded-xl mb-3 overflow-hidden">
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Conectado como</p>
-            <p className="text-sm font-medium text-white truncate" title={userEmail}>{userEmail}</p>
+        {/* Rodapé / Logout */}
+        <div className="p-3 md:p-4 border-t border-white/10 shrink-0 flex items-center justify-center md:justify-between">
+          {/* Email: Oculto no celular */}
+          <div className="hidden md:block truncate max-w-[140px]">
+            <p className="text-xs text-emerald-300 truncate" title={userEmail}>{userEmail}</p>
           </div>
+          
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-colors text-sm font-medium"
+            title="Sair da conta"
+            className="p-2 hover:bg-red-500/80 hover:text-white rounded-lg transition-colors flex items-center justify-center text-emerald-200"
           >
             <LogOut size={20} />
-            Sair da conta
           </button>
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL DO CONTEÚDO */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="max-w-7xl mx-auto pb-20 md:pb-0">
-            {children}
-          </div>
+      {/* CONTEÚDO PRINCIPAL: Margem de 64px no Celular e 256px no Computador */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-screen ml-16 md:ml-64 transition-all duration-300 overflow-hidden bg-slate-50">
+        <div className="flex-1 overflow-x-hidden p-4 md:p-8 w-full">
+          {children}
         </div>
       </main>
 
