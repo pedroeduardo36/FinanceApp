@@ -7,7 +7,6 @@ import {
   Zap, Smartphone, Heart, Briefcase, DollarSign, PiggyBank, ArrowRightLeft,
   RotateCcw, CreditCard
 } from 'lucide-react';
-import { addMonths, format } from 'date-fns';
 
 const ICONES_TRANSACOES: Record<string, React.ElementType> = {
   'tag': Tag, 'cart': ShoppingCart, 'food': Utensils, 'car': Car, 
@@ -23,7 +22,12 @@ interface TransacoesPageProps {
   onRefresh: () => void;
 }
 
-interface CategoriaOpt { id: string; nome: string; subcategoria?: string; }
+interface CategoriaOpt { 
+  id: string; 
+  nome: string; 
+  subcategoria?: string; 
+}
+
 const RESPONSAVEIS = ['Pedro', 'Júlia', 'Ambos'];
 
 export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: TransacoesPageProps) {
@@ -36,7 +40,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const [descricao, setDescricao] = useState('');
   const [valorTotal, setValorTotal] = useState('');
   const [tipo, setTipo] = useState<'receita' | 'despesa'>('despesa');
-  const [dataTransacao, setDataTransacao] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [dataTransacao, setDataTransacao] = useState(new Date().toISOString().split('T')[0]);
   const [categoria, setCategoria] = useState('');
   const [responsavel, setResponsavel] = useState(RESPONSAVEIS[2]);
   const [icone, setIcone] = useState('tag');
@@ -47,9 +51,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   // Estado do Toast
   const [toast, setToast] = useState<{ visible: boolean; transacao: Transacao | null }>({ visible: false, transacao: null });
 
+  // Carrega as Categorias e os Cartões do usuário logado
   useEffect(() => {
     supabase.from('categorias').select('*').eq('user_id', userId).then(({ data }) => { if (data) setCategoriasList(data); });
-    supabase.from('cartoes').select('*').eq('user_id', userId).then(({ data }) => { if (data) setCartoesList(data); });
+    supabase.from('cartoes_credito').select('*').eq('user_id', userId).then(({ data }) => { if (data) setCartoesList(data); });
   }, [userId]);
 
   const abrirModal = (t?: Transacao) => {
@@ -69,7 +74,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setDescricao('');
       setValorTotal('');
       setTipo('despesa');
-      setDataTransacao(format(new Date(), 'yyyy-MM-dd'));
+      setDataTransacao(new Date().toISOString().split('T')[0]);
       setCategoria('');
       setResponsavel(RESPONSAVEIS[2]);
       setIcone('tag');
@@ -85,7 +90,9 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       onRefresh();
       setToast({ visible: true, transacao: t });
       setTimeout(() => setToast((prev) => prev.transacao?.id === t.id ? { visible: false, transacao: null } : prev), 5000);
-    } catch (error) { alert('Erro ao excluir transação.'); }
+    } catch (error) { 
+      alert('Erro ao excluir transação.'); 
+    }
   };
 
   const handleDesfazer = async () => {
@@ -96,7 +103,9 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       await supabase.from('transacoes').insert([payload]);
       onRefresh();
       setToast({ visible: false, transacao: null });
-    } catch (error) { alert('Erro ao restaurar transação.'); }
+    } catch (error) { 
+      alert('Erro ao restaurar transação.'); 
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,34 +114,69 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
 
     try {
       const valorNumerico = parseFloat(valorTotal);
+      
+      // Quebramos a data manualmente para o JavaScript não confundir o Fuso Horário (UTC)
+      const [ano, mes, dia] = dataTransacao.split('-').map(Number);
+      
       const payloadBase = {
-        descricao, valor: valorNumerico, tipo, data_transacao: dataTransacao, 
-        categoria: categoria || 'Geral', responsavel, icone, cartao_id: cartaoId || null
+        user_id: userId,
+        descricao, 
+        valor: valorNumerico, 
+        tipo, 
+        categoria: categoria || 'Geral', 
+        responsavel, 
+        icone, 
+        cartao_id: cartaoId || null
       };
 
       if (editandoId) {
-        await supabase.from('transacoes').update(payloadBase).eq('id', editandoId);
+        // MODO EDIÇÃO
+        const { error } = await supabase
+          .from('transacoes')
+          .update({ ...payloadBase, data_transacao: dataTransacao })
+          .eq('id', editandoId)
+          .select();
+          
+        if (error) throw error;
+        
       } else {
+        // MODO CRIAÇÃO (COM OU SEM PARCELAS)
         const numParcelas = tipo === 'despesa' ? Number(parcelas) : 1;
         const valorParcela = valorNumerico / numParcelas;
+        
         const transacoesParaInserir = Array.from({ length: numParcelas }).map((_, index) => {
-          const dataCalculada = addMonths(new Date(dataTransacao), index);
+          // Calcula o avanço dos meses de forma segura
+          const dataCalc = new Date(ano, mes - 1 + index, dia);
+          const dataFormatada = `${dataCalc.getFullYear()}-${String(dataCalc.getMonth() + 1).padStart(2, '0')}-${String(dataCalc.getDate()).padStart(2, '0')}`;
+          
           return {
-            user_id: userId,
             ...payloadBase,
             descricao: numParcelas > 1 ? `${descricao} (${index + 1}/${numParcelas})` : descricao,
             valor: valorParcela, 
-            data_transacao: format(dataCalculada, 'yyyy-MM-dd'),
-            parcela_atual: index + 1, total_parcelas: numParcelas,
+            data_transacao: dataFormatada,
+            parcela_atual: index + 1, 
+            total_parcelas: numParcelas,
           };
         });
-        await supabase.from('transacoes').insert(transacoesParaInserir);
+
+        // O .select() no final força o Supabase a nos devolver o que ele salvou ou o erro exato
+        const { error } = await supabase
+          .from('transacoes')
+          .insert(transacoesParaInserir)
+          .select();
+        
+        // Se o banco recusar, o alerta vai pular na tela!
+        if (error) {
+           alert(`ERRO DO BANCO: ${error.message} (Detalhes: ${error.details || 'Nenhum'})`);
+           setLoading(false);
+           return;
+        }
       }
 
       setIsModalOpen(false);
       onRefresh();
-    } catch (error) {
-      alert('Erro ao salvar transação.');
+    } catch (error: any) {
+      alert('Erro no aplicativo: ' + (error.message || 'Desconhecido'));
     } finally {
       setLoading(false);
     }
@@ -194,6 +238,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
         )}
       </div>
 
+      {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -202,7 +247,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"><X size={20} /></button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Descrição</label>
@@ -243,12 +288,14 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                     {RESPONSAVEIS.map((resp) => <option key={resp} value={resp}>{resp}</option>)}
                   </select>
                 </div>
+                
                 {tipo === 'despesa' && !editandoId && (
                   <div className="md:col-span-2">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Número de Parcelas</label>
                     <input type="number" min="1" max="48" value={parcelas} onChange={(e) => setParcelas(parseInt(e.target.value) || 1)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                   </div>
                 )}
+                
                 <div className="md:col-span-2 mt-2">
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">Ícone da Transação</label>
                   <div className="flex flex-wrap gap-2">
@@ -272,6 +319,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
         </div>
       )}
 
+      {/* TOAST DE DESFAZER EXCLUSÃO */}
       {toast.visible && (
         <div className="fixed bottom-8 right-8 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50">
           <span className="text-sm font-medium">Transação excluída.</span>

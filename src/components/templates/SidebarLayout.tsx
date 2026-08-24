@@ -54,14 +54,13 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                title={item.label} // Dica de ferramenta no celular ao segurar
+                title={item.label}
                 className={`
                   flex items-center justify-center md:justify-start gap-3 p-3 rounded-lg transition-all duration-200
                   ${isActive ? 'bg-white/20 font-semibold' : 'hover:bg-white/10 opacity-70 hover:opacity-100'}
                 `}
               >
                 <Icon size={20} className="shrink-0" />
-                {/* Texto do menu: Oculto no celular, visível no PC */}
                 <span className="hidden md:inline-block text-sm whitespace-nowrap">{item.label}</span>
               </button>
             );
@@ -70,11 +69,9 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
 
         {/* Rodapé / Logout */}
         <div className="p-3 md:p-4 border-t border-white/10 shrink-0 flex items-center justify-center md:justify-between">
-          {/* Email: Oculto no celular */}
           <div className="hidden md:block truncate max-w-[140px]">
             <p className="text-xs text-emerald-300 truncate" title={userEmail}>{userEmail}</p>
           </div>
-          
           <button
             onClick={onLogout}
             title="Sair da conta"
@@ -85,7 +82,7 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
         </div>
       </aside>
 
-      {/* CONTEÚDO PRINCIPAL: Margem de 64px no Celular e 256px no Computador */}
+      {/* CONTEÚDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 min-h-screen ml-16 md:ml-64 transition-all duration-300 overflow-hidden bg-slate-50">
         <div className="flex-1 overflow-x-hidden p-4 md:p-8 w-full">
           {children}

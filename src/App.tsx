@@ -1,113 +1,107 @@
-import { useEffect, useState, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { Session } from "@supabase/supabase-js";
-import { AuthForm } from "@/components/organisms/AuthForm";
-import { SidebarLayout, TabId } from "@/components/templates/SidebarLayout";
-import { Transacao } from "@/types";
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { Session } from '@supabase/supabase-js';
+import { Transacao } from '@/types';
 
-// Páginas
-import { PainelPage } from "@/pages/PainelPage";
-import { CompromissosPage } from "@/pages/CompromissosPage";
-import { CartoesPage } from "@/pages/CartoesPage";
-import { RelatoriosPage } from "@/pages/RelatoriosPage";
-import { TransacoesPage } from "@/pages/TransacoesPage";
-import { EconomiasPage } from "@/pages/EconomiasPage";
-import { CategoriasManager } from "@/components/organisms/CategoriasManager";
+// Componentes de Template e Autenticação
+import { SidebarLayout, TabId } from '@/components/templates/SidebarLayout';
+import { AuthForm } from '@/components/organisms/AuthForm';
 
-export function App() {
+// Páginas Principais
+import { PainelPage } from '@/pages/PainelPage';
+import { TransacoesPage } from '@/pages/TransacoesPage';
+import { CartoesPage } from '@/pages/CartoesPage';
+import { CompromissosPage } from '@/pages/CompromissosPage';
+import { EconomiasPage } from '@/pages/EconomiasPage';
+import { RelatoriosPage } from '@/pages/RelatoriosPage';
+
+// Organizadores
+import { CategoriasManager } from '@/components/organisms/CategoriasManager';
+
+export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>("painel");
-
-  // Estado Global das Transações para calcular Saldo Geral
+  const [activeTab, setActiveTab] = useState<TabId>('painel');
+  
+  // Estado global de transações (usado por várias páginas)
   const [transacoes, setTransacoes] = useState<Transacao[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingTransacoes, setIsLoadingTransacoes] = useState(false);
 
+  // Controle de Sessão (Login)
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => setSession(session));
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) =>
-      setSession(session),
-    );
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchTransacoes = useCallback(async () => {
-    if (!session?.user.id) return;
-    setIsLoading(true);
+  // Busca as transações gerais do usuário
+  const fetchTransacoes = async () => {
+    if (!session?.user?.id) return;
+    
+    setIsLoadingTransacoes(true);
+    const { data, error } = await supabase
+      .from('transacoes')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('data_transacao', { ascending: false });
 
-    const { data } = await supabase
-      .from("transacoes")
-      .select("*")
-      .order("data_transacao", { ascending: false });
+    if (!error && data) {
+      setTransacoes(data);
+    }
+    setIsLoadingTransacoes(false);
+  };
 
-    setTransacoes(data || []);
-    setIsLoading(false);
-  }, [session?.user.id]);
-
+  // Recarrega os dados caso o usuário mude
   useEffect(() => {
-    fetchTransacoes();
-  }, [fetchTransacoes]);
+    if (session?.user?.id) {
+      fetchTransacoes();
+    }
+  }, [session]);
 
-  // Cálculo do Saldo Principal (Receitas - Despesas)
-  const saldoAtual = transacoes.reduce((acc, t) => {
-    return t.tipo === "receita" ? acc + t.valor : acc - t.valor;
-  }, 0);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
+  // Se não estiver logado, mostra a tela de login
   if (!session) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-        <AuthForm />
-      </div>
-    );
+    return <AuthForm />;
   }
 
+  // Roteador Interno: Decide qual página renderizar baseado na aba ativa
   const renderContent = () => {
     switch (activeTab) {
-      case "painel":
-        return <PainelPage userId={session.user.id} transacoes={transacoes} />;
-      case "transacoes":
-        return (
-          <TransacoesPage
-            userId={session.user.id}
-            transacoes={transacoes}
-            isLoading={isLoading}
-            onRefresh={fetchTransacoes}
-          />
-        );
-      case "economias":
-        return (
-          <EconomiasPage
-            userId={session.user.id}
-            onRefreshGlobais={fetchTransacoes}
-            saldoGlobal={saldoAtual}
-          />
-        );
-      default:
-        return <div>Em construção...</div>;
-      case "categorias":
-        return <CategoriasManager userId={session.user.id} />;
-      case "relatorios":
-        return <RelatoriosPage transacoes={transacoes} />;
-      case "cartoes":
+      case 'painel':
+        return <PainelPage transacoes={transacoes} />;
+      case 'transacoes':
+        return <TransacoesPage userId={session.user.id} transacoes={transacoes} isLoading={isLoadingTransacoes} onRefresh={fetchTransacoes} />;
+      case 'cartoes':
         return <CartoesPage userId={session.user.id} transacoes={transacoes} />;
-      case "recorrentes":
+      case 'recorrentes':
         return <CompromissosPage userId={session.user.id} />;
+      case 'economias':
+        return <EconomiasPage userId={session.user.id} transacoes={transacoes} onRefreshTransacoes={fetchTransacoes} />;
+      case 'relatorios':
+        return <RelatoriosPage transacoes={transacoes} />;
+      case 'categorias':
+        return <CategoriasManager userId={session.user.id} />;
+      default:
+        return <PainelPage transacoes={transacoes} />;
     }
   };
 
   return (
-    <SidebarLayout
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      userEmail={session.user.email || ""}
-      onLogout={() => supabase.auth.signOut()}
+    <SidebarLayout 
+      activeTab={activeTab} 
+      onTabChange={setActiveTab} 
+      onLogout={handleLogout}
+      userEmail={session.user.email}
     >
       {renderContent()}
     </SidebarLayout>
   );
 }
-
-export default App;

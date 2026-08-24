@@ -128,7 +128,6 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
     }
   };
 
-  // Cálculo rápido do total de custos fixos
   const totalCustosFixos = compromissos.reduce((acc, c) => acc + c.valor, 0);
 
   return (
@@ -177,7 +176,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
                   
                   <div>
                     <h4 className="font-semibold text-slate-800">{c.descricao}</h4>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                       {c.categoria && (
                         <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
                           <Tag size={12} /> {c.categoria}
@@ -192,7 +191,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 md:gap-6">
                   <span className="text-base font-bold text-slate-800">
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c.valor)}
                   </span>
@@ -212,7 +211,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
         )}
       </div>
 
-      {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
+      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSalvar} className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
@@ -225,11 +224,11 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
             
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Descrição (Ex: Aluguel, Netflix)</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Descrição</label>
                 <input type="text" required value={descricao} onChange={(e) => setDescricao(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Valor Mensal (R$)</label>
                   <input type="number" step="0.01" required value={valor} onChange={(e) => setValor(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
@@ -240,33 +239,34 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Categoria</label>
-                <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                  <option value="">Geral</option>
-                  {categoriasList.map((c) => <option key={c.id} value={c.nome}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Responsável</label>
-                <select value={responsavel} onChange={(e) => setResponsavel(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                  {RESPONSAVEIS.map((resp) => <option key={resp} value={resp}>{resp}</option>)}
-                </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Categoria</label>
+                  <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <option value="">Geral</option>
+                    {categoriasList.map((c) => <option key={c.id} value={c.nome}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Responsável</label>
+                  <select value={responsavel} onChange={(e) => setResponsavel(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    {RESPONSAVEIS.map((resp) => <option key={resp} value={resp}>{resp}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
             
             <div className="flex gap-3 justify-end border-t border-slate-100 pt-4">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors text-sm font-medium">Cancelar</button>
               <button type="submit" disabled={salvando} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 text-sm font-medium">
-                {salvando ? 'Salvando...' : 'Salvar Compromisso'}
+                {salvando ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* TOAST DE DESFAZER EXCLUSÃO */}
+      {/* TOAST */}
       {toast.visible && (
         <div className="fixed bottom-8 right-8 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50">
           <span className="text-sm font-medium">Compromisso excluído.</span>

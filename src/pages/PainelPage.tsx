@@ -1,242 +1,189 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
+import React, { useMemo } from 'react';
 import { Transacao } from '@/types';
 import { 
-  ChevronLeft, ChevronRight, Wallet, TrendingDown, 
-  TrendingUp, PiggyBank, CalendarClock 
+  ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, Calendar as CalendarIcon 
 } from 'lucide-react';
 import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Legend 
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid 
 } from 'recharts';
-import { format, subMonths, addMonths, isSameMonth, parseISO, isAfter, startOfDay } from 'date-fns';
+import { format, parseISO, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface PainelPageProps {
-  userId: string;
   transacoes: Transacao[];
 }
 
-const CORES_CATEGORIAS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-
-export function PainelPage({ userId, transacoes }: PainelPageProps) {
-  const [dataFiltro, setDataFiltro] = useState(new Date());
-  const [saldoCaixinhas, setSaldoCaixinhas] = useState(0);
-
-  useEffect(() => {
-    const fetchCaixinhas = async () => {
-      const { data } = await supabase.from('caixinhas').select('saldo_atual').eq('user_id', userId);
-      if (data) {
-        const totalInvestido = data.reduce((acc, c) => acc + c.saldo_atual, 0);
-        setSaldoCaixinhas(totalInvestido);
-      }
-    };
-    fetchCaixinhas();
-  }, [userId]);
-
-  // --- NAVEGAÇÃO DE MESES ---
-  const mesAnterior = () => setDataFiltro(subMonths(dataFiltro, 1));
-  const proximoMes = () => setDataFiltro(addMonths(dataFiltro, 1));
-  const mesFormatado = format(dataFiltro, 'MMMM yyyy', { locale: ptBR });
-
-  // --- CÁLCULOS E FILTROS ---
-  const calculos = useMemo(() => {
-    let saldoGeral = 0;
-    let receitasMes = 0;
-    let despesasMes = 0;
-    const despesasPorCategoriaMap: Record<string, number> = {};
-    const hoje = startOfDay(new Date());
-
-    const proximosLancamentos: Transacao[] = [];
+export function PainelPage({ transacoes }: PainelPageProps) {
+  const resumoMes = useMemo(() => {
+    const hoje = new Date();
+    let receitas = 0;
+    let despesas = 0;
+    const fluxoDiario: Record<string, { data: string; valor: number; diaStr: string }> = {};
 
     transacoes.forEach(t => {
       const dataTx = parseISO(t.data_transacao);
-      const isMesSelecionado = isSameMonth(dataTx, dataFiltro);
       
-      // Saldo Geral (Até a data atual, ou todas? Vamos usar todas as já pagas/até hoje)
-      if (!isAfter(dataTx, hoje)) {
-        saldoGeral += t.tipo === 'receita' ? t.valor : -t.valor;
-      }
+      // Filtra apenas o mês atual
+      if (isSameMonth(dataTx, hoje)) {
+        if (t.tipo === 'receita') receitas += t.valor;
+        else despesas += t.valor;
 
-      // Lançamentos Futuros (A partir de amanhã)
-      if (isAfter(dataTx, hoje) && proximosLancamentos.length < 5) {
-        proximosLancamentos.push(t);
-      }
-
-      // Filtros do Mês Selecionado
-      if (isMesSelecionado) {
-        if (t.tipo === 'receita') {
-          receitasMes += t.valor;
-        } else {
-          despesasMes += t.valor;
-          // Agrupa para o gráfico de pizza
-          const cat = t.categoria || 'Outros';
-          despesasPorCategoriaMap[cat] = (despesasPorCategoriaMap[cat] || 0) + t.valor;
+        const dia = format(dataTx, 'dd/MM', { locale: ptBR });
+        
+        if (!fluxoDiario[dia]) {
+          fluxoDiario[dia] = { data: dataTx.toISOString(), diaStr: dia, valor: 0 };
         }
+        
+        fluxoDiario[dia].valor += (t.tipo === 'receita' ? t.valor : -t.valor);
       }
     });
 
-    // Formata dados para os gráficos
-    const dadosPizza = Object.entries(despesasPorCategoriaMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value); // Ordena do maior pro menor
-
-    // Dados para o Gráfico de Barras (Últimos 6 meses)
-    const dadosEvolucao = Array.from({ length: 6 }).map((_, i) => {
-      const mesBase = subMonths(dataFiltro, 5 - i);
-      let rec = 0;
-      let des = 0;
+    const saldoLiquido = receitas - despesas;
+    
+    // Calcula o saldo cumulativo dia a dia para o gráfico
+    const dadosGrafico = Object.values(fluxoDiario)
+      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
       
-      transacoes.forEach(t => {
-        if (isSameMonth(parseISO(t.data_transacao), mesBase)) {
-          if (t.tipo === 'receita') rec += t.valor;
-          else des += t.valor;
-        }
-      });
-
+    let saldoAcumulado = 0;
+    const graficoFormatado = dadosGrafico.map(d => {
+      saldoAcumulado += d.valor;
       return {
-        mes: format(mesBase, 'MMM', { locale: ptBR }),
-        Receitas: rec,
-        Despesas: des
+        dia: d.diaStr,
+        Saldo: saldoAcumulado
       };
     });
 
-    return { saldoGeral, receitasMes, despesasMes, dadosPizza, dadosEvolucao, proximosLancamentos };
-  }, [transacoes, dataFiltro]);
+    // Pega as últimas 5 transações gerais para a lista rápida
+    const ultimasTransacoes = [...transacoes]
+      .sort((a, b) => new Date(b.data_transacao).getTime() - new Date(a.data_transacao).getTime())
+      .slice(0, 5);
+
+    return { receitas, despesas, saldoLiquido, graficoFormatado, ultimasTransacoes };
+  }, [transacoes]);
+
+  const formataMoeda = (valor: number) => 
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {/* HEADER E FILTRO DE MÊS */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row justify-between md:items-center gap-2">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Visão Geral</h2>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">Visão Geral</h2>
           <p className="text-sm text-slate-500">Acompanhe a saúde financeira da sua conta.</p>
         </div>
-        
-        <div className="flex items-center gap-4 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-          <button onClick={mesAnterior} className="p-2 hover:bg-white rounded-md text-slate-600 shadow-sm transition-all"><ChevronLeft size={18} /></button>
-          <span className="font-semibold text-slate-700 capitalize w-32 text-center">{mesFormatado}</span>
-          <button onClick={proximoMes} className="p-2 hover:bg-white rounded-md text-slate-600 shadow-sm transition-all"><ChevronRight size={18} /></button>
+        <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm self-start md:self-auto">
+          <CalendarIcon size={16} className="text-slate-400" />
+          <span className="text-sm font-medium text-slate-600 capitalize">
+            {format(new Date(), 'MMMM yyyy', { locale: ptBR })}
+          </span>
         </div>
       </div>
 
       {/* CARDS DE RESUMO */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-blue-500">
-          <div className="flex items-center gap-2 text-slate-500 mb-2">
-            <Wallet size={16} /> <h3 className="text-sm font-medium">Saldo em Conta</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-2 h-full bg-blue-500 rounded-r-2xl" />
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Wallet size={20} /></div>
+            <h3 className="text-sm font-medium text-slate-500">Saldo Mensal</h3>
           </div>
-          <p className="text-2xl font-bold text-slate-800">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(calculos.saldoGeral)}</p>
-        </div>
-        
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-emerald-500">
-          <div className="flex items-center gap-2 text-emerald-600 mb-2">
-            <TrendingUp size={16} /> <h3 className="text-sm font-medium">Receitas (Mês)</h3>
-          </div>
-          <p className="text-2xl font-bold text-emerald-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(calculos.receitasMes)}</p>
+          <p className={`text-2xl md:text-3xl font-bold ${resumoMes.saldoLiquido >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
+            {formataMoeda(resumoMes.saldoLiquido)}
+          </p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-red-500">
-          <div className="flex items-center gap-2 text-red-600 mb-2">
-            <TrendingDown size={16} /> <h3 className="text-sm font-medium">Despesas (Mês)</h3>
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-2 h-full bg-emerald-500 rounded-r-2xl" />
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><ArrowUpCircle size={20} /></div>
+            <h3 className="text-sm font-medium text-slate-500">Receitas</h3>
           </div>
-          <p className="text-2xl font-bold text-red-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(calculos.despesasMes)}</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-800">
+            {formataMoeda(resumoMes.receitas)}
+          </p>
         </div>
 
-        <div className="bg-emerald-900 p-5 rounded-xl shadow-sm border border-emerald-800 text-white relative overflow-hidden">
-          <div className="absolute right-[-20px] top-[-20px] opacity-10"><PiggyBank size={120} /></div>
-          <div className="flex items-center gap-2 text-emerald-200 mb-2 relative z-10">
-            <PiggyBank size={16} /> <h3 className="text-sm font-medium">Total Investido (Caixinhas)</h3>
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-2 h-full bg-red-500 rounded-r-2xl" />
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-red-50 text-red-600 rounded-lg"><ArrowDownCircle size={20} /></div>
+            <h3 className="text-sm font-medium text-slate-500">Despesas</h3>
           </div>
-          <p className="text-2xl font-bold relative z-10">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoCaixinhas)}</p>
-          <p className="text-xs text-emerald-300 mt-1 relative z-10">Rendendo 100% do CDI</p>
+          <p className="text-2xl md:text-3xl font-bold text-slate-800">
+            {formataMoeda(resumoMes.despesas)}
+          </p>
         </div>
       </div>
 
-      {/* ÁREA DOS GRÁFICOS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* GRÁFICO DE BARRAS: Evolução */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-6">Evolução Mensal (6 Meses)</h3>
-          <div className="h-[300px] w-full text-sm">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={calculos.dadosEvolucao} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis dataKey="mes" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `R$ ${val}`} />
-                <Tooltip cursor={{ fill: '#f1f5f9' }} formatter={(value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)} />
-                <Legend iconType="circle" />
-                <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                <Bar dataKey="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* GRÁFICO DE FLUXO */}
+        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <TrendingUp size={18} className="text-indigo-500" />
+              Evolução do Saldo (Mês Atual)
+            </h3>
           </div>
-        </div>
-
-        {/* GRÁFICO DE PIZZA: Despesas por Categoria */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-2">Despesas por Categoria</h3>
-          <p className="text-xs text-slate-500 mb-4">No mês selecionado</p>
           
-          <div className="h-[220px] w-full">
-            {calculos.dadosPizza.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-slate-400 text-sm">Nenhuma despesa no mês.</div>
+          <div className="h-[250px] md:h-[300px] w-full text-sm">
+            {resumoMes.graficoFormatado.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-400">Sem movimentações no mês.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={calculos.dadosPizza} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                    {calculos.dadosPizza.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={CORES_CATEGORIAS[index % CORES_CATEGORIAS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)} />
-                </PieChart>
+                <AreaChart data={resumoMes.graficoFormatado} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="dia" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `R$ ${val}`} />
+                  <Tooltip 
+                    formatter={(value: any) => [formataMoeda(value), 'Saldo no dia']}
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Area type="monotone" dataKey="Saldo" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorSaldo)" activeDot={{ r: 6, strokeWidth: 0 }} />
+                </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
+        </div>
+
+        {/* LISTA RÁPIDA DE TRANSAÇÕES */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+          <h3 className="font-bold text-slate-800 mb-6">Últimas Movimentações</h3>
           
-          {/* Legenda Customizada do Donut */}
-          <div className="mt-4 space-y-2 max-h-[120px] overflow-y-auto pr-2">
-            {calculos.dadosPizza.map((item, index) => (
-              <div key={item.name} className="flex justify-between items-center text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CORES_CATEGORIAS[index % CORES_CATEGORIAS.length] }} />
-                  <span className="text-slate-600 truncate max-w-[100px]" title={item.name}>{item.name}</span>
-                </div>
-                <span className="font-medium text-slate-800">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.value)}</span>
-              </div>
-            ))}
+          <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2">
+            {resumoMes.ultimasTransacoes.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center my-auto">Nada registrado ainda.</p>
+            ) : (
+              resumoMes.ultimasTransacoes.map(t => {
+                const isReceita = t.tipo === 'receita';
+                return (
+                  <div key={t.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className={`p-2.5 rounded-xl shrink-0 ${isReceita ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                        {isReceita ? <ArrowUpCircle size={18} /> : <ArrowDownCircle size={18} />}
+                      </div>
+                      <div className="truncate">
+                        <p className="text-sm font-medium text-slate-800 truncate">{t.descricao}</p>
+                        <p className="text-xs text-slate-400 truncate">{format(parseISO(t.data_transacao), 'dd/MM/yyyy')} • {t.categoria}</p>
+                      </div>
+                    </div>
+                    <span className={`text-sm font-bold shrink-0 ml-2 ${isReceita ? 'text-emerald-600' : 'text-slate-800'}`}>
+                      {isReceita ? '+' : '-'} {formataMoeda(t.valor)}
+                    </span>
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
 
       </div>
-
-      {/* Lançamentos Futuros */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-2 mb-4">
-          <CalendarClock className="text-amber-500" size={20} />
-          <h3 className="font-bold text-slate-800 text-lg">Próximos Lançamentos (Futuro)</h3>
-        </div>
-        
-        {calculos.proximosLancamentos.length === 0 ? (
-          <p className="text-sm text-slate-500 py-4">Não há lançamentos programados para os próximos dias.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {calculos.proximosLancamentos.map(t => (
-              <div key={t.id} className="p-4 rounded-lg border border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                <div>
-                  <p className="font-semibold text-slate-800 text-sm">{t.descricao}</p>
-                  <p className="text-xs text-slate-500 mt-1">{format(parseISO(t.data_transacao), "dd 'de' MMM", { locale: ptBR })}</p>
-                </div>
-                <span className={`text-sm font-bold ${t.tipo === 'receita' ? 'text-emerald-600' : 'text-slate-800'}`}>
-                  {t.tipo === 'receita' ? '+' : '-'} {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(t.valor)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
     </div>
   );
 }

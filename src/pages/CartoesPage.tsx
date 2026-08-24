@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Cartao, Transacao } from '@/types';
 import { Plus, Edit2, Trash2, CreditCard, RotateCcw, X, SmartphoneNfc } from 'lucide-react';
-import { isSameMonth, parseISO } from 'date-fns';
 
 interface CartoesPageProps {
   userId: string;
@@ -15,7 +14,7 @@ const OPCOES_CORES = [
   { nome: 'C6 / Black', hex: '#0f172a' },
   { nome: 'Itaú / Azul', hex: '#3b82f6' },
   { nome: 'Bradesco / Vermelho', hex: '#ef4444' },
-  { nome: 'Santander / Vermelho Escuro', hex: '#dc2626' },
+  { nome: 'Santander / Vermelho', hex: '#dc2626' },
   { nome: 'Next / Verde', hex: '#10b981' },
   { nome: 'Prata / Platinum', hex: '#94a3b8' },
 ];
@@ -42,7 +41,8 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
   });
 
   const fetchCartoes = async () => {
-    const { data } = await supabase.from('cartoes').select('*').eq('user_id', userId).order('nome');
+    // ATUALIZADO PARA cartoes_credito
+    const { data } = await supabase.from('cartoes_credito').select('*').eq('user_id', userId).order('nome');
     setCartoes(data || []);
     setLoading(false);
   };
@@ -79,15 +79,24 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
       const limiteNum = parseFloat(limite) || 0;
       const payload = { user_id: userId, nome, ultimos_digitos: ultimosDigitos, limite: limiteNum, banco, cor, tipo };
 
+      let result;
       if (editandoId) {
-        await supabase.from('cartoes').update(payload).eq('id', editandoId);
+        result = await supabase.from('cartoes_credito').update(payload).eq('id', editandoId).select();
       } else {
-        await supabase.from('cartoes').insert([payload]);
+        result = await supabase.from('cartoes_credito').insert([payload]).select();
       }
+
+      // Se o banco recusar, o alerta vai pular na tela detalhando o porquê!
+      if (result.error) {
+        alert(`ERRO DO BANCO: ${result.error.message} (Detalhes: ${result.error.details || 'Nenhum'})`);
+        setSalvando(false);
+        return;
+      }
+
       setIsModalOpen(false);
       fetchCartoes();
-    } catch (error) {
-      alert('Erro ao salvar cartão.');
+    } catch (error: any) {
+      alert('Erro no aplicativo: ' + (error.message || 'Desconhecido'));
     } finally {
       setSalvando(false);
     }
@@ -95,7 +104,8 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
 
   const handleExcluir = async (cartao: Cartao) => {
     try {
-      await supabase.from('cartoes').delete().eq('id', cartao.id);
+      // ATUALIZADO PARA cartoes_credito
+      await supabase.from('cartoes_credito').delete().eq('id', cartao.id);
       fetchCartoes();
       
       setToast({ visible: true, cartao });
@@ -113,7 +123,8 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
       const payload = { ...toast.cartao };
       delete (payload as any).id; 
       
-      await supabase.from('cartoes').insert([payload]);
+      // ATUALIZADO PARA cartoes_credito
+      await supabase.from('cartoes_credito').insert([payload]);
       fetchCartoes();
       setToast({ visible: false, cartao: null });
     } catch (error) {
@@ -121,11 +132,17 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
     }
   };
 
-  // Cálculo da fatura atual (mês vigente) para cada cartão
+  // Cálculo da fatura atual (mês vigente simplificado)
   const calcularFatura = (cartaoId: string) => {
-    const hoje = new Date();
+    const mesAtual = new Date().getMonth();
+    const anoAtual = new Date().getFullYear();
+    
     return transacoes
-      .filter(t => t.cartao_id === cartaoId && t.tipo === 'despesa' && isSameMonth(parseISO(t.data_transacao), hoje))
+      .filter(t => {
+        if (t.cartao_id !== cartaoId || t.tipo !== 'despesa') return false;
+        const [anoTx, mesTx] = t.data_transacao.split('-').map(Number);
+        return mesTx - 1 === mesAtual && anoTx === anoAtual;
+      })
       .reduce((acc, t) => acc + t.valor, 0);
   };
 
@@ -153,7 +170,7 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
           <p className="text-slate-500 text-sm">Adicione seus cartões de crédito e débito para vincular às suas compras.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {cartoes.map((cartao) => {
             const faturaAtual = calcularFatura(cartao.id);
             const limiteDisponivel = cartao.limite - faturaAtual;
@@ -161,7 +178,6 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
 
             return (
               <div key={cartao.id} className="flex flex-col gap-4">
-                {/* Visual do Cartão Físico */}
                 <div 
                   className="rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group transition-transform hover:-translate-y-1"
                   style={{ backgroundColor: cartao.cor }}
@@ -176,8 +192,8 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
                   </div>
 
                   <div className="flex justify-between items-start mb-8">
-                    <span className="font-bold tracking-widest uppercase opacity-90">{cartao.banco || 'Banco'}</span>
-                    <SmartphoneNfc size={24} className="opacity-80" />
+                    <span className="font-bold tracking-widest uppercase opacity-90 truncate max-w-[70%]">{cartao.banco || 'Banco'}</span>
+                    <SmartphoneNfc size={24} className="opacity-80 shrink-0" />
                   </div>
                   
                   <div className="mb-6">
@@ -196,7 +212,6 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
                   </div>
                 </div>
 
-                {/* Resumo da Fatura / Limite */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-500">Fatura Atual</span>
@@ -212,8 +227,8 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
                         />
                       </div>
                       <div className="flex justify-between text-xs text-slate-500">
-                        <span>Disponível: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(limiteDisponivel)}</span>
-                        <span>Limite: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cartao.limite)}</span>
+                        <span>Disp: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(limiteDisponivel)}</span>
+                        <span>Lim: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cartao.limite)}</span>
                       </div>
                     </>
                   )}
@@ -224,7 +239,7 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
         </div>
       )}
 
-      {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
+      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleSalvar} className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
@@ -236,30 +251,27 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
             </div>
             
             <div className="space-y-4 mb-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Apelido do Cartão</label>
-                  <input type="text" required value={nome} onChange={(e) => setNome(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Ex: Roxinho Pedro" />
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Apelido</label>
+                  <input type="text" required value={nome} onChange={(e) => setNome(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Banco / Emissor</label>
-                  <input type="text" required value={banco} onChange={(e) => setBanco(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Ex: Nubank" />
+                  <input type="text" required value={banco} onChange={(e) => setBanco(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Últimos 4 Dígitos</label>
-                  <input type="text" maxLength={4} value={ultimosDigitos} onChange={(e) => setUltimosDigitos(e.target.value.replace(/\D/g, ''))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="1234" />
+                  <input type="text" maxLength={4} value={ultimosDigitos} onChange={(e) => setUltimosDigitos(e.target.value.replace(/\D/g, ''))} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Limite (R$)</label>
-                  <input type="number" step="0.01" required value={limite} onChange={(e) => setLimite(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="0.00" />
+                  <input type="number" step="0.01" required value={limite} onChange={(e) => setLimite(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Tipo do Cartão</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Tipo</label>
                 <select value={tipo} onChange={(e) => setTipo(e.target.value as any)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                   <option value="credito">Crédito</option>
                   <option value="debito">Débito</option>
@@ -286,14 +298,14 @@ export function CartoesPage({ userId, transacoes }: CartoesPageProps) {
             <div className="flex gap-3 justify-end border-t border-slate-100 pt-4">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors text-sm font-medium">Cancelar</button>
               <button type="submit" disabled={salvando} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 text-sm font-medium">
-                {salvando ? 'Salvando...' : 'Salvar Cartão'}
+                {salvando ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* TOAST DE DESFAZER EXCLUSÃO */}
+      {/* TOAST */}
       {toast.visible && (
         <div className="fixed bottom-8 right-8 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50">
           <span className="text-sm font-medium">Cartão excluído.</span>
