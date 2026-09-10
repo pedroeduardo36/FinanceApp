@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { movimentarCaixinha } from '@/lib/movimentarCaixinha';
 import { Transacao } from '@/types';
 import { PiggyBank, Plus, TrendingUp, X, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, Loader2 } from 'lucide-react';
 
@@ -39,6 +40,7 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
   });
   const [valorMovimento, setValorMovimento] = useState('');
   const [processandoMovimento, setProcessandoMovimento] = useState(false);
+  const movimentoEmAndamento = useRef(false);
 
   const fetchCaixinhas = async () => {
     setLoading(true);
@@ -102,57 +104,30 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
     fetchCaixinhas();
   };
 
-  // Processar Depósito ou Resgate (Atualiza Caixinha + Cria Transação)
+  // O banco valida o saldo atual e grava a movimentação em uma única transação.
   const handleMovimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!movimento.caixinha) return;
+    if (!movimento.caixinha || movimentoEmAndamento.current) return;
 
-    const valor = parseFloat(valorMovimento);
-    if (!valor || valor <= 0) return alert('Insira um valor válido.');
-
-    if (movimento.tipo === 'deposito' && valor > saldoDisponivelConta) {
-      return alert('Saldo insuficiente na conta principal!');
-    }
-
+    movimentoEmAndamento.current = true;
     setProcessandoMovimento(true);
     try {
-      // 1. Calcula novo saldo da caixinha
-      let novoSaldo = movimento.caixinha.saldo_inicial;
-      if (movimento.tipo === 'deposito') {
-        novoSaldo += valor;
-      } else {
-        novoSaldo = Math.max(0, novoSaldo - valor);
-      }
-
-      // 2. Atualiza a Caixinha no banco
-      await supabase.from('caixinhas').update({ saldo_inicial: novoSaldo }).eq('id', movimento.caixinha.id);
-
-      // 3. Cria a transação na conta principal
-      const [ano, mes, dia] = new Date().toISOString().split('T')[0].split('-').map(Number);
-      const dataFormatada = `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-      
-      const transacaoPayload = {
-        user_id: userId,
-        descricao: movimento.tipo === 'deposito' ? `Depósito: ${movimento.caixinha.nome}` : `Resgate: ${movimento.caixinha.nome}`,
-        valor: valor,
-        tipo: movimento.tipo === 'deposito' ? 'despesa' : 'receita',
-        categoria: 'Economias',
-        icone: 'bank',
-        data_transacao: dataFormatada,
-        responsavel: 'Ambos'
-      };
-
-      await supabase.from('transacoes').insert([transacaoPayload]);
+      await movimentarCaixinha(supabase, {
+        caixinhaId: movimento.caixinha.id,
+        tipo: movimento.tipo,
+        valor: valorMovimento,
+        dataTransacao: new Date().toISOString().split('T')[0],
+      });
 
       // Atualiza tudo
       setMovimento({ isOpen: false, tipo: 'deposito', caixinha: null });
       setValorMovimento('');
-      fetchCaixinhas();
-      onRefreshTransacoes();
+      await Promise.all([fetchCaixinhas(), onRefreshTransacoes()]);
       
     } catch (error) {
-      alert('Erro ao processar movimentação.');
+      alert(error instanceof Error ? error.message : 'Erro ao processar movimentação.');
     } finally {
+      movimentoEmAndamento.current = false;
       setProcessandoMovimento(false);
     }
   };
@@ -273,7 +248,7 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Qual valor?</label>
                 <input 
-                  type="number" step="0.01" required autoFocus
+                  type="number" min="0.01" step="0.01" required autoFocus
                   value={valorMovimento} onChange={(e) => setValorMovimento(e.target.value)} 
                   className="w-full px-4 py-3 border border-slate-300 rounded-xl text-lg font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none" 
                   placeholder="R$ 0,00" 
