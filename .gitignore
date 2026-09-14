@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Projeto independente mantido fora do histórico do FinanceApp.
+monumental-barbearia/

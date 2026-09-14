@@ -1,4 +1,9 @@
--- Aplicar antes de publicar o frontend. Requisitos em database/README.md.
+-- SUPABASE SQL EDITOR: cole e execute este arquivo inteiro no projeto da aplicação.
+-- Requisitos: tabelas public.caixinhas e public.transacoes existentes,
+-- IDs UUID, valores NUMERIC e permissões/RLS conforme database/README.md.
+-- Este script instala a função; não executa depósitos/resgates nem altera saldos.
+-- Aplicar antes de publicar o frontend que chama esta RPC.
+-- BEGIN/COMMIT tornam a instalação da função e de suas permissões atômica.
 begin;
 
 create or replace function public.movimentar_caixinha(
@@ -10,6 +15,7 @@ create or replace function public.movimentar_caixinha(
 returns void
 language plpgsql
 security invoker
+-- Usa as permissões do usuário autenticado, preservando as políticas RLS.
 set search_path = ''
 as $$
 declare
@@ -20,6 +26,7 @@ declare
   v_descricao text;
   v_linhas integer;
 begin
+  -- A identidade vem da sessão validada pelo Supabase, não do formulário.
   if v_user_id is null then
     raise exception 'SESSAO_INVALIDA';
   end if;
@@ -58,10 +65,11 @@ begin
     v_tipo_transacao := 'receita';
     v_descricao := 'Resgate: ' || v_caixinha.nome;
   else
-    -- Preserva a regra atual de saldo da conta, agora calculada no servidor.
+    -- Saldo até hoje: lançamentos futuros não financiam depósitos.
     select coalesce(sum(case when t.tipo = 'receita' then t.valor else -t.valor end), 0)
     into v_saldo_conta
-    from public.transacoes t where t.user_id = v_user_id;
+    from public.transacoes t where t.user_id = v_user_id
+      and t.data_transacao::date <= (current_timestamp at time zone 'America/Sao_Paulo')::date;
     if p_valor > v_saldo_conta then
       raise exception 'SALDO_CONTA_INSUFICIENTE';
     end if;
@@ -91,5 +99,8 @@ $$;
 
 revoke all on function public.movimentar_caixinha(uuid, text, numeric, date) from public, anon;
 grant execute on function public.movimentar_caixinha(uuid, text, numeric, date) to authenticated;
+
+-- Solicita que a API reconheça a função após o commit da instalação.
+notify pgrst, 'reload schema';
 
 commit;

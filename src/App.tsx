@@ -1,107 +1,80 @@
-import React, { useState, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { Session } from '@supabase/supabase-js';
-import { Transacao } from '@/types';
-
-// Componentes de Template e Autenticação
-import { SidebarLayout, TabId } from '@/components/templates/SidebarLayout';
+import { SidebarLayout, type TabId } from '@/components/templates/SidebarLayout';
 import { AuthForm } from '@/components/organisms/AuthForm';
+import { Feedback } from '@/components/ui/Feedback';
+import { useRows } from '@/hooks/useRows';
 
-// Páginas Principais
-import { PainelPage } from '@/pages/PainelPage';
-import { TransacoesPage } from '@/pages/TransacoesPage';
-import { CartoesPage } from '@/pages/CartoesPage';
-import { CompromissosPage } from '@/pages/CompromissosPage';
-import { EconomiasPage } from '@/pages/EconomiasPage';
-import { RelatoriosPage } from '@/pages/RelatoriosPage';
+const PainelPage = lazy(() => import('@/pages/PainelPage').then(m => ({ default: m.PainelPage })));
+const TransacoesPage = lazy(() => import('@/pages/TransacoesPage').then(m => ({ default: m.TransacoesPage })));
+const CartoesPage = lazy(() => import('@/pages/CartoesPage').then(m => ({ default: m.CartoesPage })));
+const CompromissosPage = lazy(() => import('@/pages/CompromissosPage').then(m => ({ default: m.CompromissosPage })));
+const EconomiasPage = lazy(() => import('@/pages/EconomiasPage').then(m => ({ default: m.EconomiasPage })));
+const OrcamentosPage = lazy(() => import('@/pages/OrcamentosPage').then(m => ({ default: m.OrcamentosPage })));
+const RelatoriosPage = lazy(() => import('@/pages/RelatoriosPage').then(m => ({ default: m.RelatoriosPage })));
+const CategoriasManager = lazy(() => import('@/components/organisms/CategoriasManager').then(m => ({ default: m.CategoriasManager })));
+const tabs: TabId[] = ['painel', 'transacoes', 'cartoes', 'recorrentes', 'economias', 'orcamentos', 'relatorios', 'categorias'];
+function currentTab(): TabId {
+  return tabs.find(tab => `#${tab}` === window.location.hash) ?? 'painel';
+}
+function subscribeTab(listener: () => void) {
+  window.addEventListener('hashchange', listener);
+  return () => window.removeEventListener('hashchange', listener);
+}
 
-// Organizadores
-import { CategoriasManager } from '@/components/organisms/CategoriasManager';
-
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('painel');
-  
-  // Estado global de transações (usado por várias páginas)
-  const [transacoes, setTransacoes] = useState<Transacao[]>([]);
-  const [isLoadingTransacoes, setIsLoadingTransacoes] = useState(false);
-
-  // Controle de Sessão (Login)
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Busca as transações gerais do usuário
-  const fetchTransacoes = async () => {
-    if (!session?.user?.id) return;
-    
-    setIsLoadingTransacoes(true);
-    const { data, error } = await supabase
-      .from('transacoes')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('data_transacao', { ascending: false });
-
-    if (!error && data) {
-      setTransacoes(data);
-    }
-    setIsLoadingTransacoes(false);
+function Conta({ session }: { session: Session }) {
+  const userId = session.user.id;
+  const { data: transacoes, loading, error, reload } = useRows('transacoes', userId);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const activeTab = useSyncExternalStore(subscribeTab, currentTab);
+  const logout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch { setLogoutError('Não foi possível sair. Tente novamente.'); }
   };
-
-  // Recarrega os dados caso o usuário mude
-  useEffect(() => {
-    if (session?.user?.id) {
-      fetchTransacoes();
-    }
-  }, [session]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-
-  // Se não estiver logado, mostra a tela de login
-  if (!session) {
-    return <AuthForm />;
-  }
-
-  // Roteador Interno: Decide qual página renderizar baseado na aba ativa
   const renderContent = () => {
     switch (activeTab) {
-      case 'painel':
-        return <PainelPage transacoes={transacoes} />;
-      case 'transacoes':
-        return <TransacoesPage userId={session.user.id} transacoes={transacoes} isLoading={isLoadingTransacoes} onRefresh={fetchTransacoes} />;
-      case 'cartoes':
-        return <CartoesPage userId={session.user.id} transacoes={transacoes} />;
-      case 'recorrentes':
-        return <CompromissosPage userId={session.user.id} />;
-      case 'economias':
-        return <EconomiasPage userId={session.user.id} transacoes={transacoes} onRefreshTransacoes={fetchTransacoes} />;
-      case 'relatorios':
-        return <RelatoriosPage transacoes={transacoes} />;
-      case 'categorias':
-        return <CategoriasManager userId={session.user.id} />;
-      default:
-        return <PainelPage transacoes={transacoes} />;
+      case 'painel': return <PainelPage transacoes={transacoes} />;
+      case 'transacoes': return <TransacoesPage userId={userId} transacoes={transacoes} isLoading={loading} onRefresh={reload} />;
+      case 'cartoes': return <CartoesPage userId={userId} transacoes={transacoes} />;
+      case 'recorrentes': return <CompromissosPage userId={userId} />;
+      case 'economias': return <EconomiasPage userId={userId} transacoes={transacoes} onRefreshTransacoes={reload} />;
+      case 'orcamentos': return <OrcamentosPage userId={userId} transacoes={transacoes} />;
+      case 'relatorios': return <RelatoriosPage transacoes={transacoes} />;
+      case 'categorias': return <CategoriasManager userId={userId} />;
     }
   };
+  return <SidebarLayout activeTab={activeTab} onLogout={logout} userEmail={session.user.email}>
+    <Feedback error={logoutError} />
+    <Feedback error={error} retry={() => void reload()} />
+    {loading ? <p role="status">Carregando dados da conta...</p> : !error &&
+      <Suspense fallback={<p role="status">Carregando página...</p>}>{renderContent()}</Suspense>}
+  </SidebarLayout>;
+}
 
-  return (
-    <SidebarLayout 
-      activeTab={activeTab} 
-      onTabChange={setActiveTab} 
-      onLogout={handleLogout}
-      userEmail={session.user.email}
-    >
-      {renderContent()}
-    </SidebarLayout>
-  );
+export default function App() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    let eventReceived = false;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
+      eventReceived = true;
+      if (active) { setSession(next); setError(null); }
+    });
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active || eventReceived) return;
+      if (error) { setError('Não foi possível recuperar a sessão. Recarregue a página.'); setSession(null); }
+      else setSession(data.session);
+    }).catch(() => {
+      if (active && !eventReceived) { setError('Não foi possível recuperar a sessão. Recarregue a página.'); setSession(null); }
+    });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, []);
+  if (session === undefined) return <main className="p-8" role="status">Verificando sessão...</main>;
+  if (!session) return <><Feedback error={error} /><AuthForm /></>;
+  // Trocar de identidade destrói todos os estados e consultas da conta anterior.
+  return <Conta key={session.user.id} session={session} />;
 }

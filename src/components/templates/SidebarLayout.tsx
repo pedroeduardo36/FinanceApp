@@ -1,20 +1,21 @@
-import React from 'react';
-import { 
-  LayoutDashboard, ArrowRightLeft, CreditCard, CalendarDays, 
-  BarChart3, PiggyBank, Tags, LogOut 
+import { useEffect } from 'react';
+import type React from 'react';
+import {
+  LayoutDashboard, ArrowRightLeft, CreditCard, CalendarDays,
+  BarChart3, PiggyBank, Tags, LogOut, Percent
 } from 'lucide-react';
 
-export type TabId = 'painel' | 'transacoes' | 'cartoes' | 'recorrentes' | 'relatorios' | 'economias' | 'categorias';
+export type TabId = 'painel' | 'transacoes' | 'cartoes' | 'recorrentes' | 'relatorios' | 'economias' | 'orcamentos' | 'categorias';
 
 interface SidebarLayoutProps {
   children: React.ReactNode;
   activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
   onLogout: () => void;
   userEmail?: string;
 }
 
-export function SidebarLayout({ children, activeTab, onTabChange, onLogout, userEmail }: SidebarLayoutProps) {
+export function SidebarLayout({ children, activeTab, onLogout, userEmail }: SidebarLayoutProps) {
+  useEffect(() => { document.getElementById('conteudo')?.focus(); }, [activeTab]);
   const menuItems: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: 'painel', label: 'Painel', icon: LayoutDashboard },
     { id: 'transacoes', label: 'Transações', icon: ArrowRightLeft },
@@ -22,15 +23,17 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
     { id: 'recorrentes', label: 'Compromissos', icon: CalendarDays },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
     { id: 'economias', label: 'Economias', icon: PiggyBank },
+    { id: 'orcamentos', label: 'Orçamentos', icon: Percent },
     { id: 'categorias', label: 'Categorias', icon: Tags },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      
+      <a href="#conteudo" onClick={e => { e.preventDefault(); document.getElementById('conteudo')?.focus(); }} className="skip-link">Pular para o conteúdo</a>
+
       {/* SIDEBAR: w-16 no celular (apenas ícones), w-64 no Computador */}
       <aside className="fixed inset-y-0 left-0 z-50 flex flex-col bg-[#1A5336] text-white w-16 md:w-64 transition-all duration-300 ease-in-out shadow-xl">
-        
+
         {/* Topo / Logo */}
         <div className="p-4 flex flex-col items-center md:items-start border-b border-white/10 shrink-0 min-h-[72px] justify-center">
           {/* Aparece só no PC */}
@@ -45,15 +48,17 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
         </div>
 
         {/* Navegação */}
-        <nav className="flex-1 overflow-y-auto py-4 flex flex-col gap-2 px-2 custom-scrollbar">
+        <nav aria-label="Navegação principal" className="flex-1 overflow-y-auto py-4 flex flex-col gap-2 px-2 custom-scrollbar">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            
+
             return (
-              <button
+              <a
                 key={item.id}
-                onClick={() => onTabChange(item.id)}
+                href={`#${item.id}`}
+                aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
                 title={item.label}
                 className={`
                   flex items-center justify-center md:justify-start gap-3 p-3 rounded-lg transition-all duration-200
@@ -62,7 +67,7 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
               >
                 <Icon size={20} className="shrink-0" />
                 <span className="hidden md:inline-block text-sm whitespace-nowrap">{item.label}</span>
-              </button>
+              </a>
             );
           })}
         </nav>
@@ -83,7 +88,7 @@ export function SidebarLayout({ children, activeTab, onTabChange, onLogout, user
       </aside>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-screen ml-16 md:ml-64 transition-all duration-300 overflow-hidden bg-slate-50">
+      <main id="conteudo" tabIndex={-1} className="flex-1 flex flex-col min-w-0 min-h-screen ml-16 md:ml-64 transition-all duration-300 overflow-hidden bg-slate-50">
         <div className="flex-1 overflow-x-hidden p-4 md:p-8 w-full">
           {children}
         </div>

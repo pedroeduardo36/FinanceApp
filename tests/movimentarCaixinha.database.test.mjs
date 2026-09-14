@@ -69,7 +69,7 @@ beforeEach(async () => {
     ($1, $2, 'Reserva', 100), ($3, $4, 'Outra conta', 500)`,
   [caixinha, usuario, outraCaixinha, outroUsuario]);
   await db.query(`insert into public.transacoes (user_id, descricao, valor, tipo, data_transacao)
-    values ($1, 'Saldo inicial', 200, 'receita', '2026-09-01')`, [usuario]);
+    values ($1, 'Saldo inicial', 200, 'receita', current_date - 1)`, [usuario]);
   await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [usuario]);
   await db.exec('set role authenticated');
 });
@@ -189,4 +189,12 @@ test('anon não tem EXECUTE e a função não eleva privilégios', async () => {
   assert.deepEqual(rows, [{ prosecdef: false, anon_execute: false, authenticated_execute: true }]);
   await db.exec('reset role; set role anon');
   await assert.rejects(movimentar('resgate', '1'), /permission denied for function/);
+});
+
+
+test('receita futura não financia um depósito', async () => {
+  await db.exec('reset role; update public.transacoes set data_transacao = current_date + 2; set role authenticated');
+  const antes = await estado();
+  await assert.rejects(movimentar('deposito', '10'), /SALDO_CONTA_INSUFICIENTE/);
+  assert.deepEqual(await estado(), antes);
 });
