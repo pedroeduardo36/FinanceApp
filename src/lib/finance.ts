@@ -1,4 +1,4 @@
-import type { Transacao } from '../types/index.ts';
+import type { CaixinhaMovimento, Transacao } from '../types/index.ts';
 
 export function localDate(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -26,6 +26,20 @@ export function sumMoney(values: number[]): number {
   const result = values.reduce((sum, value) => sum + cents(value), 0);
   if (!Number.isSafeInteger(result)) throw new Error('Total monetário fora do limite suportado.');
   return result / 100;
+}
+export function savingsMonthlyHistory(rows: CaixinhaMovimento[]) {
+  const months = new Map<string, { month: string; income: number; expense: number; balance: number }>();
+  let balance = 0;
+  for (const row of [...rows].sort((a, b) => a.data_movimento.localeCompare(b.data_movimento) || a.criado_em.localeCompare(b.criado_em) || a.id.localeCompare(b.id))) {
+    const month = row.data_movimento.slice(0, 7);
+    const current = months.get(month) ?? { month, income: 0, expense: 0, balance };
+    balance = sumMoney([balance, row.valor]);
+    if (row.valor >= 0) current.income = sumMoney([current.income, row.valor]);
+    else current.expense = sumMoney([current.expense, -row.valor]);
+    current.balance = balance;
+    months.set(month, current);
+  }
+  return [...months.values()].reverse();
 }
 export function installments(value: string, count: number, date: string) {
   const total = cents(moneyInput(value));

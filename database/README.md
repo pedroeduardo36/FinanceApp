@@ -44,6 +44,14 @@ quando duas gravações concorrentes tentam consumir o mesmo percentual disponí
 Também concede acesso à role `authenticated`, necessário em projetos nos quais tabelas novas
 não são expostas automaticamente pela Data API.
 
+## Orçamento responsável por categorias e despesas
+
+Depois dos dois scripts citados acima, execute `orcamento_responsavel.sql`. Ele adiciona um orçamento
+padrão opcional às categorias de despesa e registra o orçamento efetivamente escolhido em cada despesa.
+Os vínculos compostos por `orcamento_id` e `user_id` impedem referências a orçamentos de outra conta.
+O script também atualiza `registrar_despesa_caixinha`, portanto ele é obrigatório mesmo quando o usuário
+pretende classificar apenas despesas pagas com caixinha.
+
 Para conferir a instalação no SQL Editor:
 
 ```sql
@@ -57,6 +65,23 @@ where oid = 'public.orcamentos'::regclass;
 
 O resultado esperado tem os três valores como `true`. Depois, teste a inclusão e a troca de mês
 pelo aplicativo com uma conta autenticada; o SQL Editor não representa essa sessão.
+
+## Histórico e manutenção de despesas pagas com caixinha
+
+Depois de `orcamento_responsavel.sql`, execute `caixinha_historico_edicao.sql`. Esse script cria o
+livro de movimentos usado pelo histórico mensal e instala as operações atômicas para editar e excluir
+uma despesa paga com caixinha. Uma edição aplica somente a diferença entre o valor anterior e o novo;
+uma exclusão devolve o valor integral à caixinha. Saldo, transação e histórico são confirmados ou
+desfeitos juntos pelo Postgres.
+
+Na primeira execução, o script importa depósitos, resgates e gastos antigos que ainda podem ser
+identificados. Se o saldo atual não puder ser totalmente reconstruído, registra um ajuste de conciliação
+na data de criação da caixinha. O ajuste preserva o saldo existente e torna explícito que parte do
+histórico anterior não possuía movimentos individualizados.
+
+A tabela `caixinha_movimentos` usa RLS: o usuário autenticado lê somente seus movimentos e gravações
+diretas são bloqueadas. As inserções, alterações e exclusões são feitas pelas funções de movimentação,
+que ativam a permissão interna somente durante a transação corrente.
 
 `movimentar_caixinha.sql` deve ser aplicado **antes de publicar o frontend** desta alteração.
 Sem a função, depósitos e resgates falham sem executar as antigas gravações separadas.

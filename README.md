@@ -42,7 +42,7 @@ Ele é o saldo do histórico registrado, não uma conciliação bancária. Datas
 mas não financiam depósitos. Evite lançar a mesma saída como compra e novamente como fatura sem definir
 uma política de conciliação: o modelo legado não distingue liquidação de previsão.
 
-Caixinhas começam em zero. Use Guardar/Resgatar para movimentar, sem editar diretamente o saldo.
+Caixinhas podem receber um saldo de abertura durante a criação. Depois disso, use Guardar/Resgatar para movimentar, sem editar diretamente o saldo.
 A interface exibe principal registrado, sem juros estimados: não há histórico de taxas/aportes que permita
 calcular rendimento real. Rendimentos reais exigem um modelo de lançamentos próprio antes de serem exibidos.
 

@@ -22,9 +22,19 @@ export type Database = {
         Args: {
           p_caixinha_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
           p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
+          p_orcamento_id: string | null;
         };
         Returns: string;
       };
+      editar_despesa_caixinha: {
+        Args: {
+          p_transacao_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
+          p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
+          p_orcamento_id: string | null;
+        };
+        Returns: undefined;
+      };
+      excluir_despesa_caixinha: { Args: { p_transacao_id: string }; Returns: undefined };
     };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;

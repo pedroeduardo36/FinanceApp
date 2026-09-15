@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows } from '../src/lib/finance.ts';
+import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows, savingsMonthlyHistory } from '../src/lib/finance.ts';
 import { collectPages, requireMutation, requestSequence } from '../src/lib/dataCore.ts';
 const row = (date, value, type = 'receita', extra = {}) => ({ id: date, user_id: 'a', descricao: 'Teste', data_transacao: date, valor: value, tipo: type, ...extra });
 
@@ -72,6 +72,18 @@ test('valor específico calcula uma porcentagem precisa e reconstrói o valor in
   assert.equal(budgetAmount(2427.5, percentage), 100);
   assert.equal(percentageFromAmount(100, 0), 0);
   assert.throws(() => percentageFromAmount(0, 10), /Não há entradas/);
+});
+test('histórico da caixinha resume entradas, saídas e saldo acumulado por mês', () => {
+  const history = savingsMonthlyHistory([
+    { id:'d', caixinha_id:'c', user_id:'a', tipo:'saida', valor:-10, descricao:'Resgate', data_movimento:'2026-09-12', criado_em:'2026-09-12T10:00:00Z' },
+    { id:'a', caixinha_id:'c', user_id:'a', tipo:'ajuste', valor:100, descricao:'Saldo inicial', data_movimento:'2026-08-01', criado_em:'2026-08-01T10:00:00Z' },
+    { id:'c', caixinha_id:'c', user_id:'a', tipo:'entrada', valor:50, descricao:'Depósito', data_movimento:'2026-09-01', criado_em:'2026-09-01T10:00:00Z' },
+    { id:'b', caixinha_id:'c', user_id:'a', tipo:'gasto', valor:-20, descricao:'Livro', data_movimento:'2026-08-20', criado_em:'2026-08-20T10:00:00Z' },
+  ]);
+  assert.deepEqual(history, [
+    { month:'2026-09', income:50, expense:10, balance:120 },
+    { month:'2026-08', income:100, expense:20, balance:80 },
+  ]);
 });
 test('paginação continua mesmo quando o servidor limita uma página abaixo do pedido', async () => {
   const data = Array.from({length:1201}, (_,i)=>i);

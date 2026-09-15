@@ -1,15 +1,14 @@
 import { Dialog } from '@/components/ui/Dialog';
-import { accountBalance, localDate, sumMoney } from '@/lib/finance';
+import { accountBalance, currency, localDate, moneyInput, savingsMonthlyHistory, sumMoney } from '@/lib/finance';
 import { useToday } from '@/hooks/useToday';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
-import { moneyInput } from '@/lib/finance';
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { movimentarCaixinha } from '@/lib/movimentarCaixinha';
 import type { Transacao } from '@/types';
-import { PiggyBank, Plus, TrendingUp, X, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, Loader2 } from 'lucide-react';
+import { PiggyBank, Plus, TrendingUp, X, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, History, Loader2 } from 'lucide-react';
 
 interface Caixinha {
   id: string;
@@ -29,14 +28,17 @@ interface EconomiasPageProps {
 export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: EconomiasPageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const { data: caixinhas, loading, error: loadError, reload: fetchCaixinhas } = useRows('caixinhas', userId);
+  const { data: historico, loading: historyLoading, error: historyError, reload: fetchHistory } = useRows('caixinha_movimentos', userId);
   const today = useToday();
 
   // Estados do Modal de Caixinha
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [nome, setNome] = useState('');
+  const [saldoInicial, setSaldoInicial] = useState('');
   const [meta, setMeta] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [historicoCaixinha, setHistoricoCaixinha] = useState<Caixinha | null>(null);
 
   // Estados do Modal de Movimentação (Depósito/Resgate)
   const [movimento, setMovimento] = useState<{ isOpen: boolean; tipo: 'deposito' | 'resgate'; caixinha: Caixinha | null }>({
@@ -54,17 +56,17 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
     setActionError(null);
     setSalvando(true);
     try {
-      const saldoNum = 0;
       const metaNum = meta ? moneyInput(meta) : null;
-      const payload = { user_id: userId, nome: nome.trim(), saldo_inicial: saldoNum, meta_valor: metaNum };
 
       if (editandoId) {
         await requireMutation(supabase.from('caixinhas').update({ nome: nome.trim(), meta_valor: metaNum }).eq('id', editandoId).eq('user_id', userId).select());
       } else {
+        const saldoNum = saldoInicial ? moneyInput(saldoInicial, true) : 0;
+        const payload = { user_id: userId, nome: nome.trim(), saldo_inicial: saldoNum, meta_valor: metaNum };
         await requireMutation(supabase.from('caixinhas').insert([payload]).select());
       }
       setIsModalOpen(false);
-      await fetchCaixinhas();
+      await Promise.all([fetchCaixinhas(), fetchHistory()]);
     } catch {
       setActionError('Erro ao salvar caixinha.');
     } finally {
@@ -76,7 +78,7 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
     if (!confirm('Deseja realmente excluir esta caixinha?')) return;
     try {
       await requireMutation(supabase.from('caixinhas').delete().eq('id', id).eq('user_id', userId).eq('saldo_inicial', 0).select());
-      await fetchCaixinhas();
+      await Promise.all([fetchCaixinhas(), fetchHistory()]);
     } catch { setActionError('Só é possível excluir uma caixinha vazia. Verifique o saldo e tente novamente.'); }
   };
 
@@ -99,7 +101,7 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
       // Atualiza tudo
       setMovimento({ isOpen: false, tipo: 'deposito', caixinha: null });
       setValorMovimento('');
-      await Promise.all([fetchCaixinhas(), onRefreshTransacoes()]);
+      await Promise.all([fetchCaixinhas(), fetchHistory(), onRefreshTransacoes()]);
 
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Erro ao processar movimentação.');
@@ -114,16 +116,27 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
     if (c) {
       setEditandoId(c.id);
       setNome(c.nome);
+      setSaldoInicial('');
       setMeta(c.meta_valor ? c.meta_valor.toString() : '');
     } else {
       setEditandoId(null);
       setNome('');
+      setSaldoInicial('');
       setMeta('');
     }
     setIsModalOpen(true);
   };
 
   const saldoTotal = sumMoney(caixinhas.map(c => c.saldo_inicial));
+  const movimentosSelecionados = useMemo(() => historicoCaixinha
+    ? historico.filter(item => item.caixinha_id === historicoCaixinha.id)
+      .sort((a, b) => b.data_movimento.localeCompare(a.data_movimento) || b.criado_em.localeCompare(a.criado_em))
+    : [], [historico, historicoCaixinha]);
+  const resumoMensal = useMemo(() => savingsMonthlyHistory(movimentosSelecionados), [movimentosSelecionados]);
+  const monthName = (month: string) => {
+    const [year, monthNumber] = month.split('-').map(Number);
+    return new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date(year, monthNumber - 1, 1));
+  };
 
   return (
     <div className="space-y-6 relative">
@@ -198,10 +211,45 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
                     <ArrowDownCircle size={16} /> Resgatar
                   </button>
                 </div>
+                <button type="button" onClick={() => setHistoricoCaixinha(c)} className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
+                  <History size={16} /> Ver histórico
+                </button>
               </div>
             );
           })}
         </div>
+      )}
+
+      {historicoCaixinha && (
+        <Dialog label={`Histórico da caixinha ${historicoCaixinha.nome}`} onClose={() => setHistoricoCaixinha(null)}>
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between border-b border-slate-100 p-6">
+              <div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Histórico da caixinha</p><h3 className="text-xl font-bold text-slate-900">{historicoCaixinha.nome}</h3><p className="mt-1 text-sm text-slate-500">Saldo atual: <strong className="text-emerald-700">{currency(historicoCaixinha.saldo_inicial)}</strong></p></div>
+              <button type="button" onClick={() => setHistoricoCaixinha(null)} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Fechar"><X size={20} /></button>
+            </div>
+            <div className="max-h-[70vh] space-y-6 overflow-y-auto p-6">
+              <Feedback error={historyError} retry={() => void fetchHistory()} />
+              {historyLoading ? <p role="status" className="text-sm text-slate-500">Carregando histórico...</p> : movimentosSelecionados.length ? <>
+                <section aria-labelledby="monthly-savings-heading">
+                  <h4 id="monthly-savings-heading" className="mb-3 font-bold text-slate-800">Resumo mensal</h4>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table>
+                      <thead><tr><th scope="col">Mês</th><th scope="col" className="text-right">Entradas</th><th scope="col" className="text-right">Saídas</th><th scope="col" className="text-right">Saldo</th></tr></thead>
+                      <tbody>{resumoMensal.map(item => <tr key={item.month}><th scope="row" className="capitalize">{monthName(item.month)}</th><td className="text-right text-emerald-700">{currency(item.income)}</td><td className="text-right text-red-700">{currency(item.expense)}</td><td className="text-right font-semibold text-slate-900">{currency(item.balance)}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </section>
+                <section aria-labelledby="savings-events-heading">
+                  <h4 id="savings-events-heading" className="mb-3 font-bold text-slate-800">Movimentações</h4>
+                  <ul className="space-y-2">{movimentosSelecionados.map(item => <li key={item.id} className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 p-3">
+                    <div><p className="font-medium text-slate-800">{item.descricao}</p><p className="text-xs text-slate-500">{new Date(`${item.data_movimento.slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')} · {item.tipo === 'entrada' ? 'Entrada' : item.tipo === 'gasto' ? 'Gasto' : item.tipo === 'saida' ? 'Saída' : 'Ajuste'}</p></div>
+                    <strong className={item.valor >= 0 ? 'text-emerald-700' : 'text-red-700'}>{item.valor >= 0 ? '+' : '−'} {currency(Math.abs(item.valor))}</strong>
+                  </li>)}</ul>
+                </section>
+              </> : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><History size={28} className="mx-auto mb-2 text-slate-400" /><p className="font-medium text-slate-700">Nenhuma movimentação registrada.</p><p className="text-sm text-slate-500">Entradas e saídas futuras aparecerão aqui.</p></div>}
+            </div>
+          </div>
+        </Dialog>
       )}
 
       {/* MODAL DE MOVIMENTAÇÃO (DEPÓSITO/RESGATE) */}
@@ -250,7 +298,7 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
         </Dialog>
       )}
 
-      {/* MODAL DE CAIXINHA (CRIAR/EDITAR) - MANTIDO IGUAL */}
+      {/* MODAL DE CAIXINHA (CRIAR/EDITAR) */}
       {isModalOpen && (
         <Dialog label="Caixinha" onClose={() => setIsModalOpen(false)}>
           <Feedback error={actionError} />
@@ -265,12 +313,22 @@ export function EconomiasPage({ userId, transacoes, onRefreshTransacoes }: Econo
                 <input id="economiaspage-field-1" type="text" required value={nome} onChange={(e) => setNome(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Ex: Reserva de Emergência" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <p className="text-sm text-slate-600">Use Guardar e Resgatar para movimentar o saldo.</p>
+                {!editandoId && (
+                  <div>
+                    <label htmlFor="economiaspage-field-initial-balance" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Valor inicial (Opcional)</label>
+                    <input id="economiaspage-field-initial-balance" type="number" min="0" step="0.01" value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="0.00" />
+                  </div>
+                )}
                 <div>
                   <label htmlFor="economiaspage-field-2" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Meta Final (Opcional)</label>
                   <input id="economiaspage-field-2" type="number" min="0.01" step="0.01" value={meta} onChange={(e) => setMeta(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="0.00" />
                 </div>
               </div>
+              <p className="text-sm text-slate-600">
+                {editandoId
+                  ? 'Use Guardar e Resgatar para movimentar o saldo.'
+                  : 'O valor inicial registra uma economia que já existe e não movimenta o saldo da conta.'}
+              </p>
             </div>
             <div className="flex gap-3 justify-end border-t border-slate-100 pt-4">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium">Cancelar</button>

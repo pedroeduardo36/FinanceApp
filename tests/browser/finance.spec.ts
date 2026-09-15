@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const A = '00000000-0000-0000-0000-000000000001';
 const B = '00000000-0000-0000-0000-000000000002';
+const C = '00000000-0000-0000-0000-000000000003';
 async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>) {
   let user = A;
   await page.route('https://finance-tests.invalid/**', async route => {
@@ -32,15 +33,21 @@ async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>)
         {...base, id:`${requested}-lesson-4`, descricao:'Aula de violão',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:10,tipo:'receita',data_transacao:'2026-09-04'},
         {...base, id:`${requested}-lesson-5`, descricao:'Aula de teoria',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:20,tipo:'receita',data_transacao:'2026-09-05'},
         {...base, id:`${requested}-lesson-6`, descricao:'Última aula do mês',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:40,tipo:'receita',data_transacao:'2026-09-29'},
+        {...base, id:`${requested}-expense-1`, descricao:'Supermercado',responsavel:'Pedro',categoria:'Categoria de teste',subcategoria:'Mercado',valor:30,tipo:'despesa',data_transacao:'2026-09-12',orcamento_id:requested},
+        {...base, id:`${requested}-savings-expense`, descricao:'Livro da reserva',responsavel:'Pedro',categoria:'Categoria de teste',subcategoria:'Mercado',valor:25,tipo:'despesa',data_transacao:'2026-09-10',caixinha_id:requested},
       ],
       cartoes_credito: [{...base,nome:'Cartão de teste',banco:'Banco de teste',limite:1000,tipo:'credito',cor:'#94a3b8'}],
-      caixinhas: [{...base,nome:'Reserva de teste',saldo_inicial:100,meta_valor:200,data_criacao:'2026-09-01'}],
+      caixinhas: [{...base,nome:'Reserva de teste',saldo_inicial:75,meta_valor:200,data_criacao:'2026-08-01'}],
+      caixinha_movimentos: [
+        {...base,id:`${requested}-initial`,caixinha_id:requested,tipo:'ajuste',valor:100,descricao:'Saldo inicial',data_movimento:'2026-08-01',criado_em:'2026-08-01T10:00:00Z'},
+        {...base,id:`${requested}-saving-expense`,caixinha_id:requested,transacao_id:`${requested}-savings-expense`,tipo:'gasto',valor:-25,descricao:'Livro da reserva',data_movimento:'2026-09-10',criado_em:'2026-09-10T10:00:00Z'},
+      ],
       compromissos: [{...base,descricao:'Internet de teste',valor:100,dia_vencimento:5}],
       categorias: [
-        {...base,nome:'Categoria de teste',subcategoria:'Mercado',tipo:'despesa'},
+        {...base,nome:'Categoria de teste',subcategoria:'Mercado',tipo:'despesa',orcamento_id:requested},
         {...base,id:`${requested}-salary`,nome:'Salário',subcategoria:'Aulas Particulares',tipo:'receita'},
       ],
-      orcamentos: [{...base,nome:'Moradia',criado_em:'2026-08-01T00:00:00Z'}],
+      orcamentos: [{...base,nome:'Moradia',criado_em:'2026-08-01T00:00:00Z'},{...base,id:C,nome:'Lazer',criado_em:'2026-08-01T00:00:00Z'}],
       orcamento_percentuais: [{...base,orcamento_id:requested,competencia:'2026-09-01',percentual:25}],
     };
     const rows = Number(url.searchParams.get('offset') ?? 0) === 0 ? seeds[table ?? ''] ?? [] : [];
@@ -115,12 +122,15 @@ test('orçamentos exibem a origem das entradas e preservam percentuais por mês'
  await expect(breakdown.getByText('Dado privado A')).toBeVisible();
  await breakdown.getByText('Última aula do mês').scrollIntoViewIfNeeded();
  await expect(breakdown.getByText('Última aula do mês')).toBeVisible();
- await expect(page.getByLabel('Porcentagem')).toHaveValue('25');
- await expect(page.getByText('R$ 25,00',{exact:true})).toBeVisible();
+ const moradia=page.locator('article').filter({hasText:'Moradia'});
+ await expect(moradia.getByLabel('Porcentagem')).toHaveValue('25');
+ await expect(moradia.getByText('R$ 25,00',{exact:true}).first()).toBeVisible();
+ await expect(moradia.getByText('R$ 30,00',{exact:true})).toBeVisible();
+ await expect(moradia.getByText('-R$ 5,00',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Ir para o próximo mês'}).click();
- await expect(page.getByLabel('Porcentagem')).toHaveValue('0');
+ await expect(moradia.getByLabel('Porcentagem')).toHaveValue('0');
  await page.getByRole('button',{name:'Ir para o mês anterior'}).click();
- await expect(page.getByLabel('Porcentagem')).toHaveValue('25');
+ await expect(moradia.getByLabel('Porcentagem')).toHaveValue('25');
  const budget=page.locator('article').filter({hasText:'Moradia'});
  await budget.getByRole('button',{name:'Valor',exact:true}).click();
  await budget.getByLabel('Valor específico').fill('50');
@@ -142,6 +152,8 @@ test('formulário envia parcelas com datas e centavos corretos', async ({page}) 
   await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('100');
   await dialog.getByLabel('Data Base',{exact:true}).fill('2026-01-31');
   await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Categoria de teste (Mercado)'});
+  await expect(dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true})).toHaveValue(A);
+  await dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true}).selectOption(C);
   await dialog.getByRole('button',{name:'Criar novo responsável'}).click();
   await dialog.getByLabel('Responsável',{exact:true}).fill('Ana');
   await dialog.getByLabel('Número de Parcelas',{exact:true}).fill('3');
@@ -150,7 +162,7 @@ test('formulário envia parcelas com datas e centavos corretos', async ({page}) 
   const rows=(await sent).postDataJSON() as {valor:number;data_transacao:string;categoria:string;subcategoria:string;responsavel:string}[];
   expect(rows.map(r=>r.valor)).toEqual([33.34,33.33,33.33]);
   expect(rows.map(r=>r.data_transacao)).toEqual(['2026-01-31','2026-02-28','2026-03-31']);
-  expect(rows[0]).toMatchObject({categoria:'Categoria de teste',subcategoria:'Mercado',responsavel:'Ana'});
+  expect(rows[0]).toMatchObject({categoria:'Categoria de teste',subcategoria:'Mercado',responsavel:'Ana',orcamento_id:C});
   await expect(dialog).not.toBeVisible();
 });
 
@@ -181,13 +193,70 @@ test('categorias são filtradas por tipo e uma despesa pode usar uma caixinha', 
   await expect(dialog).not.toBeVisible();
 });
 
+test('despesa paga com caixinha pode ser editada e excluída com ajuste atômico', async ({page}) => {
+  await mockApi(page); await page.goto('#transacoes'); await login(page);
+  const card = page.getByRole('article').filter({hasText:'Livro da reserva'});
+  await card.getByRole('button',{name:'Editar',exact:true}).click();
+  const dialog = page.getByRole('dialog',{name:'Transação',exact:true});
+  await expect(dialog.getByLabel('Valor (R$)',{exact:true})).toHaveValue('25');
+  await dialog.getByLabel('Valor (R$)',{exact:true}).fill('20');
+  const edited = page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rpc/editar_despesa_caixinha'));
+  await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
+  expect((await edited).postDataJSON()).toMatchObject({p_transacao_id:`${A}-savings-expense`,p_valor:'20'});
+  await expect(dialog).not.toBeVisible();
+
+  page.once('dialog', confirmation => confirmation.accept());
+  const deleted = page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rpc/excluir_despesa_caixinha'));
+  await card.getByRole('button',{name:'Excluir',exact:true}).click();
+  expect((await deleted).postDataJSON()).toEqual({p_transacao_id:`${A}-savings-expense`});
+});
+
 test('cadastro de categoria envia o tipo selecionado', async ({page}) => {
   await mockApi(page); await page.goto('#categorias'); await login(page);
+  await page.getByLabel('Orçamento padrão (Opcional)',{exact:true}).selectOption(A);
+  const expenseSaved=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rest/v1/categorias'));
+  await page.getByLabel('Nome Principal',{exact:true}).fill('Mercado novo');
+  await page.getByRole('button',{name:'Adicionar Categoria'}).click();
+  expect((await expenseSaved).postDataJSON()[0]).toMatchObject({nome:'Mercado novo',tipo:'despesa',orcamento_id:A});
+  await page.getByRole('button',{name:'Editar Categoria de teste'}).click();
+  await expect(page.getByLabel('Orçamento padrão (Opcional)',{exact:true})).toHaveValue(A);
+  await page.getByLabel('Orçamento padrão (Opcional)',{exact:true}).selectOption(C);
+  const edited=page.waitForRequest(request => request.method()==='PATCH' && request.url().includes('/rest/v1/categorias'));
+  await page.getByRole('button',{name:'Salvar alterações'}).click();
+  expect((await edited).postDataJSON()).toMatchObject({nome:'Categoria de teste',tipo:'despesa',orcamento_id:C});
+  await expect(page.getByLabel('Nome Principal',{exact:true})).toHaveValue('');
   await page.getByLabel('Tipo',{exact:true}).selectOption('receita');
   await page.getByLabel('Nome Principal',{exact:true}).fill('Freelance');
   const saved=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rest/v1/categorias'));
   await page.getByRole('button',{name:'Adicionar Categoria'}).click();
-  expect((await saved).postDataJSON()[0]).toMatchObject({nome:'Freelance',tipo:'receita'});
+  expect((await saved).postDataJSON()[0]).toMatchObject({nome:'Freelance',tipo:'receita',orcamento_id:null});
+});
+
+test('nova caixinha pode ser criada com um valor inicial', async ({page}) => {
+  await mockApi(page); await page.goto('#economias'); await login(page);
+  await page.getByRole('button',{name:'Criar Caixinha',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Caixinha',exact:true});
+  await dialog.getByLabel('Nome do Objetivo',{exact:true}).fill('Reserva existente');
+  await dialog.getByLabel('Valor inicial (Opcional)',{exact:true}).fill('250.75');
+  await dialog.getByLabel('Meta Final (Opcional)',{exact:true}).fill('1000');
+  const saved=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rest/v1/caixinhas'));
+  await dialog.getByRole('button',{name:'Salvar Caixinha',exact:true}).click();
+  expect((await saved).postDataJSON()[0]).toMatchObject({
+    nome:'Reserva existente',saldo_inicial:250.75,meta_valor:1000,
+  });
+  await expect(dialog).not.toBeVisible();
+});
+
+test('caixinha exibe movimentos e saldo acumulado por mês', async ({page}) => {
+  await mockApi(page); await page.goto('#economias'); await login(page);
+  await page.getByRole('button',{name:'Ver histórico',exact:true}).click();
+  const dialog = page.getByRole('dialog',{name:'Histórico da caixinha Reserva de teste'});
+  await expect(dialog.getByText('Saldo inicial',{exact:true})).toBeVisible();
+  await expect(dialog.getByText('Livro da reserva',{exact:true})).toBeVisible();
+  const table = dialog.getByRole('table');
+  await expect(table.getByRole('row',{name:/setembro de 2026.*R\$\s*25,00.*R\$\s*75,00/i})).toBeVisible();
+  await expect(table.getByRole('row',{name:/agosto de 2026.*R\$\s*100,00.*R\$\s*0,00.*R\$\s*100,00/i})).toBeVisible();
+  expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
 });
 
 test('páginas com dados e modais adicionais não apresentam violações automáticas',async({page})=>{

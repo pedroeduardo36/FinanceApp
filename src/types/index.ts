@@ -9,6 +9,7 @@ export interface Transacao {
   parcela_atual?: number | null; total_parcelas?: number | null;
   responsavel?: string | null; icone?: string | null; cartao_id?: string | null;
   caixinha_id?: string | null;
+  orcamento_id?: string | null;
 }
 export interface Compromisso {
   id: string; user_id: string; descricao: string; valor: number; dia_vencimento: number;
@@ -17,10 +18,16 @@ export interface Compromisso {
 export interface Categoria {
   id: string; user_id: string; nome: string; subcategoria?: string | null;
   tipo: 'receita' | 'despesa';
+  orcamento_id?: string | null;
 }
 export interface Caixinha {
   id: string; user_id: string; nome: string; saldo_inicial: number;
   meta_valor: number | null; data_criacao: string;
+}
+export interface CaixinhaMovimento {
+  id: string; user_id: string; caixinha_id: string; transacao_id?: string | null;
+  tipo: 'entrada' | 'saida' | 'gasto' | 'ajuste'; valor: number;
+  descricao: string; data_movimento: string; criado_em: string;
 }
 export interface Orcamento {
   id: string; user_id: string; nome: string; criado_em: string;
@@ -32,6 +39,6 @@ export interface OrcamentoPercentual {
 export interface Entidades {
   transacoes: Transacao; cartoes_credito: Cartao; compromissos: Compromisso;
   categorias: Categoria; caixinhas: Caixinha; orcamentos: Orcamento;
-  orcamento_percentuais: OrcamentoPercentual;
+  orcamento_percentuais: OrcamentoPercentual; caixinha_movimentos: CaixinhaMovimento;
 }
 export type Tabela = keyof Entidades;

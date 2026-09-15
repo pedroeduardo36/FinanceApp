@@ -6,6 +6,7 @@ import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
 import { moneyInput } from '@/lib/finance';
 import { registrarDespesaCaixinha } from '@/lib/registrarDespesaCaixinha';
+import { editarDespesaCaixinha, excluirDespesaCaixinha } from '@/lib/gerenciarDespesaCaixinha';
 import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Transacao } from '@/types';
@@ -13,7 +14,7 @@ import {
   Plus, Tag, X, Edit2, Trash2,
   ShoppingCart, Utensils, Car, Coffee, Home,
   Zap, Smartphone, Heart, Briefcase, DollarSign, PiggyBank, ArrowRightLeft,
-  RotateCcw, CreditCard, User
+  RotateCcw, CreditCard, User, WalletCards
 } from 'lucide-react';
 
 const ICONES_TRANSACOES: Record<string, React.ElementType> = {
@@ -36,6 +37,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const { data: categoriasList, error: categoriasError } = useRows('categorias', userId);
   const { data: cartoesList, error: loadError, reload: reloadCartoes } = useRows('cartoes_credito', userId);
   const { data: caixinhasList, error: caixinhasError, reload: reloadCaixinhas } = useRows('caixinhas', userId);
+  const { data: orcamentosList, error: orcamentosError } = useRows('orcamentos', userId);
 
   // Estados do Formulário
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const [parcelas, setParcelas] = useState(1);
   const [cartaoId, setCartaoId] = useState('');
   const [caixinhaId, setCaixinhaId] = useState('');
+  const [orcamentoId, setOrcamentoId] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [pagina, setPagina] = useState(0);
@@ -74,10 +77,6 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
 
   const abrirModal = (t?: Transacao) => {
     setActionError(null);
-    if (t?.caixinha_id) {
-      setActionError('Despesas pagas com caixinha não podem ser editadas diretamente.');
-      return;
-    }
     if (t) {
       setEditandoId(t.id);
       setDescricao(t.descricao);
@@ -92,7 +91,8 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setCriandoResponsavel(false);
       setIcone(t.icone || 'tag');
       setCartaoId(t.cartao_id || '');
-      setCaixinhaId('');
+      setCaixinhaId(t.caixinha_id || '');
+      setOrcamentoId(t.tipo === 'despesa' ? t.orcamento_id ?? '' : '');
       setParcelas(1);
     } else {
       setEditandoId(null);
@@ -108,22 +108,25 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setIcone('tag');
       setCartaoId('');
       setCaixinhaId('');
+      setOrcamentoId('');
       setParcelas(1);
     }
     setIsModalOpen(true);
   };
 
   const handleExcluir = async (t: Transacao) => {
-    if (t.caixinha_id) {
-      setActionError('Despesas pagas com caixinha não podem ser excluídas diretamente.');
-      return;
-    }
     try {
-      await requireMutation(supabase.from('transacoes').delete().eq('id', t.id).eq('user_id', userId).select());
-      await onRefresh();
-      setToast({ visible: true, transacao: t });
-    } catch {
-      setActionError('Erro ao excluir transação.');
+      if (t.caixinha_id) {
+        if (!confirm('Excluir esta despesa devolverá o valor para a caixinha. Deseja continuar?')) return;
+        await excluirDespesaCaixinha(supabase, t.id);
+        await Promise.all([onRefresh(), reloadCaixinhas()]);
+      } else {
+        await requireMutation(supabase.from('transacoes').delete().eq('id', t.id).eq('user_id', userId).select());
+        await onRefresh();
+        setToast({ visible: true, transacao: t });
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Erro ao excluir transação.');
     }
   };
 
@@ -151,16 +154,25 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
         categoria: categoria || 'Geral', subcategoria: subcategoria.trim() || null,
         responsavel: responsavel.trim(), icone,
         cartao_id: tipo === 'receita' ? null : cartaoId || null,
+        orcamento_id: tipo === 'despesa' ? orcamentoId || null : null,
       };
       if (editandoId) {
-        await requireMutation(supabase.from('transacoes').update({ ...payloadBase, data_transacao: dataTransacao })
-          .eq('id', editandoId).eq('user_id', userId).select());
+        if (caixinhaId) {
+          await editarDespesaCaixinha(supabase, {
+            transacaoId: editandoId, descricao, valor: valorTotal, dataTransacao,
+            categoria: payloadBase.categoria, subcategoria: payloadBase.subcategoria,
+            responsavel, icone, orcamentoId: payloadBase.orcamento_id,
+          });
+        } else {
+          await requireMutation(supabase.from('transacoes').update({ ...payloadBase, data_transacao: dataTransacao })
+            .eq('id', editandoId).eq('user_id', userId).select());
+        }
       } else {
         if (tipo === 'despesa' && caixinhaId) {
           await registrarDespesaCaixinha(supabase, {
             caixinhaId, descricao, valor: valorTotal, dataTransacao,
             categoria: payloadBase.categoria, subcategoria: payloadBase.subcategoria,
-            responsavel, icone,
+            responsavel, icone, orcamentoId: payloadBase.orcamento_id,
           });
         } else {
           const parts = installments(valorTotal, tipo === 'despesa' ? parcelas : 1, dataTransacao);
@@ -182,6 +194,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       <Feedback error={loadError} retry={() => void reloadCartoes()} />
       <Feedback error={categoriasError} />
       <Feedback error={caixinhasError} />
+      <Feedback error={orcamentosError} />
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-slate-800">Histórico de Transações</h2>
@@ -204,6 +217,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
               const IconeCard = ICONES_TRANSACOES[t.icone || 'tag'] || Tag;
               const cartaoVinculado = cartoesList.find(c => c.id === t.cartao_id);
               const caixinhaVinculada = caixinhasList.find(c => c.id === t.caixinha_id);
+              const orcamentoVinculado = orcamentosList.find(item => item.id === t.orcamento_id);
 
               return (
                 <article key={t.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
@@ -219,6 +233,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                         {t.responsavel && <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 font-medium text-blue-700"><User size={12} /> {t.responsavel}</span>}
                         {cartaoVinculado && <span className="flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md font-medium"><CreditCard size={12} /> {cartaoVinculado.nome}</span>}
                         {caixinhaVinculada && <span className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 font-medium text-amber-700"><PiggyBank size={12} /> {caixinhaVinculada.nome}</span>}
+                        {orcamentoVinculado && <span className="flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700"><WalletCards size={12} /> {orcamentoVinculado.nome}</span>}
                       </div>
                     </div>
                   </div>
@@ -270,10 +285,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-3" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Tipo</label>
-                  <select id="transacoespage-field-3" value={tipo} onChange={(e) => {
+                  <select id="transacoespage-field-3" value={tipo} disabled={Boolean(editandoId && caixinhaId)} onChange={(e) => {
                     const nextType = e.target.value === 'receita' ? 'receita' : e.target.value === 'fatura_cartao' ? 'fatura_cartao' : 'despesa';
-                    setTipo(nextType); setCategoriaId(''); setCategoria(''); setSubcategoria(''); setCaixinhaId('');
-                  }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    setTipo(nextType); setCategoriaId(''); setCategoria(''); setSubcategoria(''); setCaixinhaId(''); setOrcamentoId('');
+                  }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
                     <option value="despesa">Despesa (Saída)</option>
                     <option value="receita">Receita (Entrada)</option>
                     <option value="fatura_cartao">Pagamento de fatura</option>
@@ -293,11 +308,19 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                     const selected = categoriasList.find(item => item.id === e.target.value);
                     setCategoria(selected?.nome ?? '');
                     setSubcategoria(selected?.subcategoria?.trim() ?? '');
+                    setOrcamentoId(tipo === 'despesa' ? selected?.orcamento_id ?? '' : '');
                   }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     <option value="">Geral</option>
                     {categoriasDisponiveis.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
                   </select>
                 </div>
+                {tipo === 'despesa' && <div>
+                  <label htmlFor="transacoespage-budget" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Orçamento responsável (Opcional)</label>
+                  <select id="transacoespage-budget" value={orcamentoId} onChange={event => setOrcamentoId(event.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="">Sem orçamento</option>
+                    {orcamentosList.map(orcamento => <option key={orcamento.id} value={orcamento.id}>{orcamento.nome}</option>)}
+                  </select>
+                </div>}
                 {tipo === 'despesa' && !editandoId && <div className="md:col-span-2">
                   <label htmlFor="transacoespage-caixinha" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Pagar com caixinha (Opcional)</label>
                   <select id="transacoespage-caixinha" value={caixinhaId} onChange={event => { setCaixinhaId(event.target.value); if (event.target.value) { setCartaoId(''); setParcelas(1); } }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">

@@ -1,6 +1,6 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Percent, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Loader2, Percent, Plus, ReceiptText, WalletCards, X } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Feedback } from '@/components/ui/Feedback';
 import { useRows } from '@/hooks/useRows';
@@ -107,19 +107,35 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
   const income = useMemo(() => monthlyIncome(transacoes, month), [transacoes, month]);
   const incomeRows = useMemo(() => budgetIncomeRows(transacoes, month), [transacoes, month]);
   const totalIncome = useMemo(() => sumMoney(income.map(item => item.valor)), [income]);
+  const spendingByBudget = useMemo(() => {
+    const values = new Map<string, number[]>();
+    for (const transaction of transacoes) {
+      if (transaction.tipo !== 'despesa' || transaction.data_transacao.slice(0, 7) !== month || !transaction.orcamento_id) continue;
+      values.set(transaction.orcamento_id, [...(values.get(transaction.orcamento_id) ?? []), transaction.valor]);
+    }
+    return new Map([...values].map(([id, amounts]) => [id, sumMoney(amounts)]));
+  }, [transacoes, month]);
+  const unassignedSpent = useMemo(() => sumMoney(transacoes
+    .filter(item => item.tipo === 'despesa' && item.data_transacao.slice(0, 7) === month && !item.orcamento_id)
+    .map(item => item.valor)), [transacoes, month]);
   const parsedDrafts = budgets.map(budget => {
     const draft = draftFor(budget.id);
     try {
       if (draft.mode === 'amount') {
         const amount = moneyInput(draft.value.replace(',', '.'), true);
-        return { budget, draft, amount, percentage: percentageFromAmount(totalIncome, amount), valid: true };
+        const spent = spendingByBudget.get(budget.id) ?? 0;
+        return { budget, draft, amount, spent, remaining: sumMoney([amount, -spent]), percentage: percentageFromAmount(totalIncome, amount), valid: true };
       }
       const percentage = parsePercentage(draft.value);
-      return { budget, draft, percentage, amount: budgetAmount(totalIncome, percentage), valid: true };
-    } catch { return { budget, draft, percentage: 0, amount: 0, valid: false }; }
+      const amount = budgetAmount(totalIncome, percentage);
+      const spent = spendingByBudget.get(budget.id) ?? 0;
+      return { budget, draft, percentage, amount, spent, remaining: sumMoney([amount, -spent]), valid: true };
+    } catch { return { budget, draft, percentage: 0, amount: 0, spent: spendingByBudget.get(budget.id) ?? 0, remaining: 0, valid: false }; }
   });
   const totalPercentage = parsedDrafts.reduce((sum, item) => sum + item.percentage, 0);
   const totalAmount = sumMoney(parsedDrafts.map(item => item.amount));
+  const totalSpent = sumMoney(parsedDrafts.map(item => item.spent));
+  const totalRemaining = sumMoney([totalAmount, -totalSpent]);
   const formValid = parsedDrafts.every(item => item.valid) && totalPercentage <= 100 && totalAmount <= totalIncome;
 
   const createBudget = async (event: FormEvent) => {
@@ -170,8 +186,9 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
-        <h2 className="text-xl font-bold text-slate-800">Orçamentos</h2>
-        <p className="text-sm text-slate-500">Distribua as entradas de cada mês entre seus objetivos.</p>
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Planejamento mensal</p>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Orçamentos</h2>
+        <p className="text-sm text-slate-500">Planeje, acompanhe os gastos e ajuste suas prioridades.</p>
       </div>
       <button type="button" onClick={() => { setActionError(null); setMessage(null); setDialogOpen(true); }} className="flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
         <Plus size={16} /> Adicionar orçamento
@@ -182,7 +199,7 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
     <Feedback error={budgetsError || percentagesError ? 'Estrutura de orçamentos indisponível. Execute database/orcamentos.sql no SQL Editor do Supabase e tente novamente.' : null} retry={() => void Promise.all([reloadBudgets(), reloadPercentages()])} />
     {message && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">{message}</p>}
 
-    <section aria-labelledby="entradas-heading" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section aria-labelledby="entradas-heading" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-200 p-5 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 id="entradas-heading" className="font-bold text-slate-800">Entradas de {monthLabel(month)}</h3>
@@ -206,16 +223,38 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
     </section>
 
     <section aria-labelledby="distribuicao-heading" className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <button type="button" onClick={() => changeMonth(-1)} aria-label="Ir para o mês anterior" className="inline-flex items-center justify-center gap-1 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-100"><ChevronLeft size={18} /> Anterior</button>
         <div className="text-center"><h3 id="distribuicao-heading" className="font-bold capitalize text-slate-800">{monthLabel(month)}</h3><p className="text-xs text-slate-500">Porcentagens exclusivas deste mês</p></div>
         <button type="button" onClick={() => changeMonth(1)} aria-label="Ir para o próximo mês" className="inline-flex items-center justify-center gap-1 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-100">Próximo <ChevronRight size={18} /></button>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label={`Resumo de ${monthLabel(month)}`}>
+        <div className="rounded-2xl bg-slate-900 p-4 text-white">
+          <div className="mb-3 flex items-center justify-between text-slate-300"><span className="text-xs font-medium uppercase tracking-wide">Entradas</span><CircleDollarSign size={18} /></div>
+          <strong className="text-2xl">{currency(totalIncome)}</strong>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between text-slate-500"><span className="text-xs font-medium uppercase tracking-wide">Designado</span><WalletCards size={18} /></div>
+          <strong className="text-2xl text-slate-900">{currency(totalAmount)}</strong>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between text-slate-500"><span className="text-xs font-medium uppercase tracking-wide">Gasto</span><ReceiptText size={18} /></div>
+          <strong className="text-2xl text-slate-900">{currency(totalSpent)}</strong>
+          {unassignedSpent > 0 && <p className="mt-1 text-xs text-amber-700">{currency(unassignedSpent)} sem orçamento</p>}
+        </div>
+        <div className={`rounded-2xl border p-4 ${totalRemaining < 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+          <div className={`mb-3 text-xs font-medium uppercase tracking-wide ${totalRemaining < 0 ? 'text-red-700' : 'text-emerald-700'}`}>Saldo planejado</div>
+          <strong className={`text-2xl ${totalRemaining < 0 ? 'text-red-800' : 'text-emerald-800'}`}>{currency(totalRemaining)}</strong>
+        </div>
+      </div>
+
       {isLoading ? <p role="status" className="text-sm text-slate-500">Carregando orçamentos...</p> : budgets.length ? <>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {parsedDrafts.map(({ budget, draft, amount, percentage, valid }) => <article key={budget.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-start justify-between gap-3"><div><h4 className="font-bold text-slate-800">{budget.nome}</h4><p className="text-xs text-slate-500">Valor calculado sobre {currency(totalIncome)}</p></div><Percent size={20} aria-hidden="true" className="text-emerald-600" /></div>
+          {parsedDrafts.map(({ budget, draft, amount, spent, remaining, percentage, valid }) => {
+            const usage = amount > 0 ? Math.min(100, (spent / amount) * 100) : spent > 0 ? 100 : 0;
+            return <article key={budget.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between gap-3"><div><h4 className="text-lg font-bold text-slate-900">{budget.nome}</h4><p className="text-xs text-slate-500">Calculado sobre {currency(totalIncome)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${remaining < 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{remaining < 0 ? 'Acima do limite' : 'Dentro do plano'}</span></div>
             <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1" aria-label={`Forma de definir ${budget.nome}`}>
               <button type="button" aria-pressed={draft.mode === 'percentage'} onClick={() => updateDraft(budget.id, { mode: 'percentage', value: String(percentage) })} className={`rounded-md px-3 py-1.5 text-sm font-medium ${draft.mode === 'percentage' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600'}`}>Porcentagem</button>
               <button type="button" aria-pressed={draft.mode === 'amount'} onClick={() => updateDraft(budget.id, { mode: 'amount', value: amount.toFixed(2) })} className={`rounded-md px-3 py-1.5 text-sm font-medium ${draft.mode === 'amount' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600'}`}>Valor</button>
@@ -227,7 +266,13 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
               </div>
               <strong className="min-w-28 text-right text-lg text-emerald-700">{valid ? draft.mode === 'amount' ? `${percentage.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}%` : currency(amount) : '—'}</strong>
             </div>
-          </article>)}
+            <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
+              <div><p className="text-[11px] uppercase tracking-wide text-slate-500">Designado</p><p className="mt-1 font-semibold text-slate-800">{currency(amount)}</p></div>
+              <div><p className="text-[11px] uppercase tracking-wide text-slate-500">Gasto</p><p className="mt-1 font-semibold text-slate-800">{currency(spent)}</p></div>
+              <div><p className="text-[11px] uppercase tracking-wide text-slate-500">Restante</p><p className={`mt-1 font-semibold ${remaining < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{currency(remaining)}</p></div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" aria-label={`${usage.toFixed(0)}% do orçamento ${budget.nome} utilizado`} role="img"><div className={`h-full rounded-full transition-all duration-300 ${remaining < 0 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${usage}%` }} /></div>
+          </article>})}
         </div>
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="text-sm text-slate-500">Total distribuído</p><p className={`text-xl font-bold ${formValid ? 'text-slate-800' : 'text-red-700'}`}>{totalPercentage.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}% · {formValid ? currency(totalAmount) : 'acima do total disponível'}</p><p className="text-xs text-slate-500">Disponível: {Math.max(0, 100 - totalPercentage).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}%</p></div>

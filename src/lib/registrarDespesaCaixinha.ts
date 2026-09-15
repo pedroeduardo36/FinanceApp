@@ -7,6 +7,7 @@ interface DespesaCaixinha {
   subcategoria: string | null;
   responsavel: string;
   icone: string;
+  orcamentoId: string | null;
 }
 
 interface ClienteDespesaCaixinha {
@@ -21,6 +22,7 @@ interface ClienteDespesaCaixinha {
       p_subcategoria: string | null;
       p_responsavel: string;
       p_icone: string;
+      p_orcamento_id: string | null;
     },
   ) => PromiseLike<{ error: { message: string } | null }>;
 }
@@ -30,6 +32,7 @@ const mensagens: Record<string, string> = {
   DADOS_INVALIDOS: 'Preencha os dados obrigatórios da despesa.',
   SALDO_CAIXINHA_INSUFICIENTE: 'Saldo insuficiente na caixinha selecionada.',
   CAIXINHA_INDISPONIVEL: 'Caixinha indisponível. Atualize a página.',
+  ORCAMENTO_INDISPONIVEL: 'Orçamento indisponível. Escolha outro orçamento.',
   SESSAO_INVALIDA: 'Sua sessão expirou. Entre novamente.',
 };
 
@@ -56,6 +59,7 @@ export async function registrarDespesaCaixinha(cliente: ClienteDespesaCaixinha, 
       p_subcategoria: despesa.subcategoria?.trim() || null,
       p_responsavel: despesa.responsavel.trim(),
       p_icone: despesa.icone,
+      p_orcamento_id: despesa.orcamentoId || null,
     });
   } catch {
     throw new Error(mensagemFalha);
