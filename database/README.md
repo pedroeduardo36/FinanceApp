@@ -1,5 +1,24 @@
 # Movimentação atômica de caixinhas
 
+## Categorias iniciais
+
+`categorias_padrao.sql` cadastra categorias comuns de receitas e despesas para a conta
+identificada pelas categorias personalizadas “Freela” e “Aulas Particulares”. O script é
+idempotente e preserva categorias já existentes. Se essas referências identificarem nenhuma
+conta ou mais de uma, ele interrompe sem inserir dados para evitar escolher o usuário errado.
+
+## Tipos de categoria e despesas pagas com caixinha
+
+Execute `categorias_tipo_despesa_caixinha.sql` no SQL Editor antes de usar o filtro de
+categorias ou selecionar uma caixinha no formulário de transação. O script adiciona o tipo
+`receita`/`despesa` às categorias, vincula despesas às caixinhas e instala a função
+`registrar_despesa_caixinha`.
+
+Na primeira execução, categorias antigas usadas somente em receitas são classificadas como
+receita; categorias sem uso ou usadas também em saídas são classificadas como despesa. A função
+valida a identidade com `auth.uid()`, respeita RLS, bloqueia a caixinha durante a operação e
+desconta o saldo junto com a criação da despesa. Qualquer falha desfaz as duas alterações.
+
 ## Subcategoria das transações
 
 Execute `transacoes_subcategoria.sql` no SQL Editor antes de publicar a agregação de

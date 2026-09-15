@@ -5,6 +5,7 @@ import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
 import { moneyInput } from '@/lib/finance';
+import { registrarDespesaCaixinha } from '@/lib/registrarDespesaCaixinha';
 import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Transacao } from '@/types';
@@ -34,6 +35,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { data: categoriasList, error: categoriasError } = useRows('categorias', userId);
   const { data: cartoesList, error: loadError, reload: reloadCartoes } = useRows('cartoes_credito', userId);
+  const { data: caixinhasList, error: caixinhasError, reload: reloadCaixinhas } = useRows('caixinhas', userId);
 
   // Estados do Formulário
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -49,6 +51,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const [icone, setIcone] = useState('tag');
   const [parcelas, setParcelas] = useState(1);
   const [cartaoId, setCartaoId] = useState('');
+  const [caixinhaId, setCaixinhaId] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [pagina, setPagina] = useState(0);
@@ -60,12 +63,21 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     ...transacoes.map(transaction => transaction.responsavel?.trim())
       .filter((name): name is string => typeof name === 'string' && name.toLocaleLowerCase('pt-BR') !== 'eu'),
   ])], [transacoes]);
+  const tipoCategoria = tipo === 'receita' ? 'receita' : 'despesa';
+  const categoriasDisponiveis = useMemo(
+    () => categoriasList.filter(item => item.tipo === tipoCategoria),
+    [categoriasList, tipoCategoria],
+  );
 
   // Estado do Toast
   const [toast, setToast] = useState<{ visible: boolean; transacao: Transacao | null }>({ visible: false, transacao: null });
 
   const abrirModal = (t?: Transacao) => {
     setActionError(null);
+    if (t?.caixinha_id) {
+      setActionError('Despesas pagas com caixinha não podem ser editadas diretamente.');
+      return;
+    }
     if (t) {
       setEditandoId(t.id);
       setDescricao(t.descricao);
@@ -80,6 +92,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setCriandoResponsavel(false);
       setIcone(t.icone || 'tag');
       setCartaoId(t.cartao_id || '');
+      setCaixinhaId('');
       setParcelas(1);
     } else {
       setEditandoId(null);
@@ -94,12 +107,17 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setCriandoResponsavel(false);
       setIcone('tag');
       setCartaoId('');
+      setCaixinhaId('');
       setParcelas(1);
     }
     setIsModalOpen(true);
   };
 
   const handleExcluir = async (t: Transacao) => {
+    if (t.caixinha_id) {
+      setActionError('Despesas pagas com caixinha não podem ser excluídas diretamente.');
+      return;
+    }
     try {
       await requireMutation(supabase.from('transacoes').delete().eq('id', t.id).eq('user_id', userId).select());
       await onRefresh();
@@ -138,14 +156,22 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
         await requireMutation(supabase.from('transacoes').update({ ...payloadBase, data_transacao: dataTransacao })
           .eq('id', editandoId).eq('user_id', userId).select());
       } else {
-        const parts = installments(valorTotal, tipo === 'despesa' ? parcelas : 1, dataTransacao);
-        const payload = parts.map(part => ({ ...payloadBase, ...part,
-          descricao: parts.length > 1 ? `${descricao.trim()} (${part.parcela_atual}/${parts.length})` : descricao.trim(),
-        }));
-        await requireMutation(supabase.from('transacoes').insert(payload).select(), payload.length);
+        if (tipo === 'despesa' && caixinhaId) {
+          await registrarDespesaCaixinha(supabase, {
+            caixinhaId, descricao, valor: valorTotal, dataTransacao,
+            categoria: payloadBase.categoria, subcategoria: payloadBase.subcategoria,
+            responsavel, icone,
+          });
+        } else {
+          const parts = installments(valorTotal, tipo === 'despesa' ? parcelas : 1, dataTransacao);
+          const payload = parts.map(part => ({ ...payloadBase, ...part,
+            descricao: parts.length > 1 ? `${descricao.trim()} (${part.parcela_atual}/${parts.length})` : descricao.trim(),
+          }));
+          await requireMutation(supabase.from('transacoes').insert(payload).select(), payload.length);
+        }
       }
       setIsModalOpen(false);
-      await onRefresh();
+      await Promise.all([onRefresh(), reloadCaixinhas()]);
     } catch (error) { setActionError(error instanceof Error ? error.message : 'Não foi possível salvar a transação.'); }
     finally { setLoading(false); }
   };
@@ -155,6 +181,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       <Feedback error={actionError} />
       <Feedback error={loadError} retry={() => void reloadCartoes()} />
       <Feedback error={categoriasError} />
+      <Feedback error={caixinhasError} />
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-slate-800">Histórico de Transações</h2>
@@ -176,6 +203,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
               const isReceita = t.tipo === 'receita';
               const IconeCard = ICONES_TRANSACOES[t.icone || 'tag'] || Tag;
               const cartaoVinculado = cartoesList.find(c => c.id === t.cartao_id);
+              const caixinhaVinculada = caixinhasList.find(c => c.id === t.caixinha_id);
 
               return (
                 <article key={t.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
@@ -190,6 +218,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                         {t.categoria && <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md"><Tag size={12} /> {t.categoria}{t.subcategoria ? ` · ${t.subcategoria}` : ''}</span>}
                         {t.responsavel && <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 font-medium text-blue-700"><User size={12} /> {t.responsavel}</span>}
                         {cartaoVinculado && <span className="flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md font-medium"><CreditCard size={12} /> {cartaoVinculado.nome}</span>}
+                        {caixinhaVinculada && <span className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 font-medium text-amber-700"><PiggyBank size={12} /> {caixinhaVinculada.nome}</span>}
                       </div>
                     </div>
                   </div>
@@ -241,7 +270,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-3" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Tipo</label>
-                  <select id="transacoespage-field-3" value={tipo} onChange={(e) => setTipo(e.target.value === 'receita' ? 'receita' : e.target.value === 'fatura_cartao' ? 'fatura_cartao' : 'despesa')} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <select id="transacoespage-field-3" value={tipo} onChange={(e) => {
+                    const nextType = e.target.value === 'receita' ? 'receita' : e.target.value === 'fatura_cartao' ? 'fatura_cartao' : 'despesa';
+                    setTipo(nextType); setCategoriaId(''); setCategoria(''); setSubcategoria(''); setCaixinhaId('');
+                  }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     <option value="despesa">Despesa (Saída)</option>
                     <option value="receita">Receita (Entrada)</option>
                     <option value="fatura_cartao">Pagamento de fatura</option>
@@ -249,7 +281,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-4" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Cartão (Opcional)</label>
-                  <select id="transacoespage-field-4" value={cartaoId} onChange={(e) => setCartaoId(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <select id="transacoespage-field-4" value={cartaoId} disabled={tipo === 'receita' || Boolean(caixinhaId)} onChange={(e) => setCartaoId(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
                     <option value="">Nenhum</option>
                     {cartoesList.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                   </select>
@@ -263,9 +295,17 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                     setSubcategoria(selected?.subcategoria?.trim() ?? '');
                   }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     <option value="">Geral</option>
-                    {categoriasList.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
+                    {categoriasDisponiveis.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
                   </select>
                 </div>
+                {tipo === 'despesa' && !editandoId && <div className="md:col-span-2">
+                  <label htmlFor="transacoespage-caixinha" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Pagar com caixinha (Opcional)</label>
+                  <select id="transacoespage-caixinha" value={caixinhaId} onChange={event => { setCaixinhaId(event.target.value); if (event.target.value) { setCartaoId(''); setParcelas(1); } }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="">Não usar caixinha</option>
+                    {caixinhasList.map(caixinha => <option key={caixinha.id} value={caixinha.id}>{caixinha.nome} — {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(caixinha.saldo_inicial)}</option>)}
+                  </select>
+                  {caixinhaId && <p className="mt-1 text-xs text-slate-500">O valor será descontado da caixinha e registrado como uma única despesa.</p>}
+                </div>}
                 <div>
                   <label htmlFor="transacoespage-field-6" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Responsável</label>
                   {criandoResponsavel ? <>
@@ -279,7 +319,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                   </>}
                 </div>
 
-                {tipo === 'despesa' && !editandoId && (
+                {tipo === 'despesa' && !editandoId && !caixinhaId && (
                   <div className="md:col-span-2">
                     <label htmlFor="transacoespage-field-7" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Número de Parcelas</label>
                     <input id="transacoespage-field-7" type="number" min="1" max="48" value={parcelas} onChange={(e) => setParcelas(parseInt(e.target.value) || 1)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />

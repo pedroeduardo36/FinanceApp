@@ -18,6 +18,13 @@ export type Database = {
         Args: { p_caixinha_id: string; p_tipo: string; p_valor: string; p_data_transacao: string };
         Returns: undefined;
       };
+      registrar_despesa_caixinha: {
+        Args: {
+          p_caixinha_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
+          p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
+        };
+        Returns: string;
+      };
     };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;

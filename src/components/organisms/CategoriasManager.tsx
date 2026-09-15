@@ -17,6 +17,7 @@ export function CategoriasManager({ userId }: CategoriasManagerProps) {
 
   const [nome, setNome] = useState('');
   const [subcategoria, setSubcategoria] = useState('');
+  const [tipo, setTipo] = useState<'receita' | 'despesa'>('despesa');
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,10 +25,13 @@ export function CategoriasManager({ userId }: CategoriasManagerProps) {
     setSalvando(true);
 
     try {
-      await requireMutation(supabase.from('categorias').insert([{ user_id: userId, nome: nome.trim(), subcategoria: subcategoria.trim() }]).select());
+      await requireMutation(supabase.from('categorias').insert([{
+        user_id: userId, nome: nome.trim(), subcategoria: subcategoria.trim(), tipo,
+      }]).select());
 
       setNome('');
       setSubcategoria('');
+      setTipo('despesa');
       await fetchCategorias();
     } catch {
       setActionError('Não foi possível salvar a categoria. Verifique o nome e tente novamente.');
@@ -66,6 +70,13 @@ export function CategoriasManager({ userId }: CategoriasManagerProps) {
           </h3>
 
           <form onSubmit={handleSalvar} className="space-y-4">
+            <div>
+              <label htmlFor="categoriasmanager-tipo" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Tipo</label>
+              <select id="categoriasmanager-tipo" value={tipo} onChange={event => setTipo(event.target.value === 'receita' ? 'receita' : 'despesa')} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <option value="despesa">Despesa</option>
+                <option value="receita">Receita</option>
+              </select>
+            </div>
             <div>
               <label htmlFor="categoriasmanager-field-0" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Nome Principal</label>
               <input id="categoriasmanager-field-0"
@@ -115,7 +126,10 @@ export function CategoriasManager({ userId }: CategoriasManagerProps) {
               {categorias.map(cat => (
                 <div key={cat.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-lg group">
                   <div className="truncate pr-2">
-                    <p className="text-sm font-medium text-slate-800 truncate">{cat.nome}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-slate-800">{cat.nome}</p>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cat.tipo === 'receita' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{cat.tipo === 'receita' ? 'Receita' : 'Despesa'}</span>
+                    </div>
                     {cat.subcategoria && (
                       <p className="text-xs text-slate-500 truncate">{cat.subcategoria}</p>
                     )}

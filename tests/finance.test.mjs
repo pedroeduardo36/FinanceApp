@@ -31,6 +31,7 @@ test('intervalos vazios/invertidos não quebram os relatórios', () => {
 });
 test('saldo disponível não inclui lançamentos futuros', () => {
   assert.equal(accountBalance([row('2026-01-01',100),row('2026-01-02',20,'despesa'),row('2099-01-01',1000)], '2026-01-02'), 80);
+  assert.equal(accountBalance([row('2026-01-01',100),row('2026-01-02',20,'despesa',{caixinha_id:'reserva'})], '2026-01-02'), 100);
   const date = new Date(2026, 0, 1, 23, 59);
   assert.equal(localDate(date), '2026-01-01');
 });

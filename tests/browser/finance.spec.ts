@@ -36,7 +36,10 @@ async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>)
       cartoes_credito: [{...base,nome:'Cartão de teste',banco:'Banco de teste',limite:1000,tipo:'credito',cor:'#94a3b8'}],
       caixinhas: [{...base,nome:'Reserva de teste',saldo_inicial:100,meta_valor:200,data_criacao:'2026-09-01'}],
       compromissos: [{...base,descricao:'Internet de teste',valor:100,dia_vencimento:5}],
-      categorias: [{...base,nome:'Categoria de teste'},{...base,id:`${requested}-salary`,nome:'Salário',subcategoria:'Aulas Particulares'}],
+      categorias: [
+        {...base,nome:'Categoria de teste',subcategoria:'Mercado',tipo:'despesa'},
+        {...base,id:`${requested}-salary`,nome:'Salário',subcategoria:'Aulas Particulares',tipo:'receita'},
+      ],
       orcamentos: [{...base,nome:'Moradia',criado_em:'2026-08-01T00:00:00Z'}],
       orcamento_percentuais: [{...base,orcamento_id:requested,competencia:'2026-09-01',percentual:25}],
     };
@@ -138,7 +141,7 @@ test('formulário envia parcelas com datas e centavos corretos', async ({page}) 
   await dialog.getByLabel('Descrição',{exact:true}).fill('Compra parcelada');
   await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('100');
   await dialog.getByLabel('Data Base',{exact:true}).fill('2026-01-31');
-  await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Salário (Aulas Particulares)'});
+  await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Categoria de teste (Mercado)'});
   await dialog.getByRole('button',{name:'Criar novo responsável'}).click();
   await dialog.getByLabel('Responsável',{exact:true}).fill('Ana');
   await dialog.getByLabel('Número de Parcelas',{exact:true}).fill('3');
@@ -147,8 +150,44 @@ test('formulário envia parcelas com datas e centavos corretos', async ({page}) 
   const rows=(await sent).postDataJSON() as {valor:number;data_transacao:string;categoria:string;subcategoria:string;responsavel:string}[];
   expect(rows.map(r=>r.valor)).toEqual([33.34,33.33,33.33]);
   expect(rows.map(r=>r.data_transacao)).toEqual(['2026-01-31','2026-02-28','2026-03-31']);
-  expect(rows[0]).toMatchObject({categoria:'Salário',subcategoria:'Aulas Particulares',responsavel:'Ana'});
+  expect(rows[0]).toMatchObject({categoria:'Categoria de teste',subcategoria:'Mercado',responsavel:'Ana'});
   await expect(dialog).not.toBeVisible();
+});
+
+test('categorias são filtradas por tipo e uma despesa pode usar uma caixinha', async ({page}) => {
+  await mockApi(page); await page.goto('#transacoes'); await login(page);
+  await page.getByRole('button',{name:'Nova Transação'}).click();
+  const dialog=page.getByRole('dialog',{name:'Transação'});
+  const category=dialog.getByLabel('Categoria',{exact:true});
+  await expect(category.locator('option')).toHaveCount(2);
+  await expect(category.locator('option',{hasText:'Categoria de teste'})).toHaveCount(1);
+  await expect(category.locator('option',{hasText:'Salário'})).toHaveCount(0);
+  await dialog.getByLabel('Tipo',{exact:true}).selectOption('receita');
+  await expect(category.locator('option',{hasText:'Salário'})).toHaveCount(1);
+  await expect(category.locator('option',{hasText:'Categoria de teste'})).toHaveCount(0);
+
+  await dialog.getByLabel('Tipo',{exact:true}).selectOption('despesa');
+  await category.selectOption({label:'Categoria de teste (Mercado)'});
+  await dialog.getByLabel('Pagar com caixinha (Opcional)',{exact:true}).selectOption(A);
+  await expect(dialog.getByLabel('Número de Parcelas',{exact:true})).toHaveCount(0);
+  await dialog.getByLabel('Descrição',{exact:true}).fill('Compra com reserva');
+  await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('25.90');
+  const rpc=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rpc/registrar_despesa_caixinha'));
+  await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
+  expect((await rpc).postDataJSON()).toMatchObject({
+    p_caixinha_id:A, p_descricao:'Compra com reserva', p_valor:'25.90',
+    p_categoria:'Categoria de teste', p_subcategoria:'Mercado',
+  });
+  await expect(dialog).not.toBeVisible();
+});
+
+test('cadastro de categoria envia o tipo selecionado', async ({page}) => {
+  await mockApi(page); await page.goto('#categorias'); await login(page);
+  await page.getByLabel('Tipo',{exact:true}).selectOption('receita');
+  await page.getByLabel('Nome Principal',{exact:true}).fill('Freelance');
+  const saved=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rest/v1/categorias'));
+  await page.getByRole('button',{name:'Adicionar Categoria'}).click();
+  expect((await saved).postDataJSON()[0]).toMatchObject({nome:'Freelance',tipo:'receita'});
 });
 
 test('páginas com dados e modais adicionais não apresentam violações automáticas',async({page})=>{

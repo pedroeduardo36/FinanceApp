@@ -8,12 +8,16 @@ export interface Transacao {
   subcategoria?: string | null;
   parcela_atual?: number | null; total_parcelas?: number | null;
   responsavel?: string | null; icone?: string | null; cartao_id?: string | null;
+  caixinha_id?: string | null;
 }
 export interface Compromisso {
   id: string; user_id: string; descricao: string; valor: number; dia_vencimento: number;
   categoria?: string | null; responsavel?: string | null;
 }
-export interface Categoria { id: string; user_id: string; nome: string; subcategoria?: string | null }
+export interface Categoria {
+  id: string; user_id: string; nome: string; subcategoria?: string | null;
+  tipo: 'receita' | 'despesa';
+}
 export interface Caixinha {
   id: string; user_id: string; nome: string; saldo_inicial: number;
   meta_valor: number | null; data_criacao: string;

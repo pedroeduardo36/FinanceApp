@@ -43,7 +43,7 @@ export function installments(value: string, count: number, date: string) {
   });
 }
 export function accountBalance(rows: Transacao[], today = localDate()): number {
-  return sumMoney(rows.filter(t => t.data_transacao.slice(0, 10) <= today)
+  return sumMoney(rows.filter(t => t.data_transacao.slice(0, 10) <= today && !t.caixinha_id)
     .map(t => t.tipo === 'receita' ? t.valor : -t.valor));
 }
 export function timeline(rows: Transacao[]) {
