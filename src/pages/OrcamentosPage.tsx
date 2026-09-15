@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Percent, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Percent, Plus, X } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Feedback } from '@/components/ui/Feedback';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
-import { budgetAmount, currency, moneyInput, monthlyIncome, percentageFromAmount, shiftMonth, sumMoney } from '@/lib/finance';
+import { budgetAmount, budgetIncomeRows, currency, dateLabel, moneyInput, monthlyIncome, percentageFromAmount, shiftMonth, sumMoney } from '@/lib/finance';
 import { supabase } from '@/lib/supabase';
+import type { BudgetIncomeRow } from '@/lib/finance';
 import type { Transacao } from '@/types';
 
 interface OrcamentosPageProps { userId: string; transacoes: Transacao[] }
@@ -24,6 +25,60 @@ function parsePercentage(value: string) {
   const parsed = Number(value.replace(',', '.'));
   if (parsed < 0 || parsed > 100) throw new Error('Cada porcentagem deve ficar entre 0 e 100.');
   return parsed;
+}
+
+function IncomeBreakdown({ item }: { item: BudgetIncomeRow }) {
+  const popoverId = useId();
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  const showBreakdown = (target: HTMLElement) => {
+    const popover = popoverRef.current;
+    if (!popover) return;
+    if (!popover.matches(':popover-open')) popover.showPopover();
+
+    const trigger = target.getBoundingClientRect();
+    const width = Math.min(512, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(trigger.left, window.innerWidth - width - 16));
+    popover.style.width = `${width}px`;
+    popover.style.left = `${left}px`;
+    popover.style.top = `${trigger.bottom + 8}px`;
+
+    const bounds = popover.getBoundingClientRect();
+    if (bounds.bottom > window.innerHeight - 16) {
+      popover.style.top = `${Math.max(16, trigger.top - bounds.height - 8)}px`;
+    }
+  };
+
+  return <>
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-controls={popoverId}
+      onMouseEnter={event => showBreakdown(event.currentTarget)}
+      onFocus={event => showBreakdown(event.currentTarget)}
+      onClick={event => showBreakdown(event.currentTarget)}
+      className="flex items-center gap-1 rounded font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    >
+      {item.title}<ChevronDown size={15} aria-hidden="true" />
+    </button>
+    <div
+      ref={popoverRef}
+      id={popoverId}
+      popover="auto"
+      role="dialog"
+      aria-label={`Entradas somadas em ${item.title}`}
+      className="fixed m-0 max-h-[min(70vh,32rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-2xl"
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Entradas somadas ({item.details.length})</p>
+        <button type="button" onClick={() => popoverRef.current?.hidePopover()} aria-label="Fechar detalhes" className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={16} /></button>
+      </div>
+      <ul className="space-y-2">{item.details.map(detail => <li key={detail.id} className="border-b border-slate-100 pb-2 text-sm last:border-0 last:pb-0">
+        <div className="flex justify-between gap-3"><span className="font-medium text-slate-700">{detail.descricao}</span><span className="whitespace-nowrap text-emerald-700">{currency(detail.valor)}</span></div>
+        <p className="text-xs text-slate-500">{detail.responsavel?.trim() || 'Não informado'} · {dateLabel(detail.data_transacao)}</p>
+      </li>)}</ul>
+    </div>
+  </>;
 }
 
 export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
@@ -50,6 +105,7 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
   }));
 
   const income = useMemo(() => monthlyIncome(transacoes, month), [transacoes, month]);
+  const incomeRows = useMemo(() => budgetIncomeRows(transacoes, month), [transacoes, month]);
   const totalIncome = useMemo(() => sumMoney(income.map(item => item.valor)), [income]);
   const parsedDrafts = budgets.map(budget => {
     const draft = draftFor(budget.id);
@@ -139,10 +195,10 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
           <caption className="sr-only">Origem das entradas consideradas nos orçamentos de {monthLabel(month)}</caption>
           <thead><tr><th scope="col">Título</th><th scope="col">Responsável</th><th scope="col" className="text-right">Valor</th></tr></thead>
           <tbody>
-            {income.map(item => <tr key={item.id}>
-              <td>{item.descricao}</td><td>{item.responsavel?.trim() || 'Não informado'}</td><td className="text-right font-medium text-emerald-700">{currency(item.valor)}</td>
+            {incomeRows.map(item => <tr key={item.id}>
+              <td>{item.grouped ? <IncomeBreakdown item={item} /> : item.title}</td><td>{item.responsible}</td><td className="text-right font-medium text-emerald-700">{currency(item.value)}</td>
             </tr>)}
-            {!income.length && <tr><td colSpan={3} className="py-6 text-center text-slate-500">Nenhuma entrada registrada neste mês.</td></tr>}
+            {!incomeRows.length && <tr><td colSpan={3} className="py-6 text-center text-slate-500">Nenhuma entrada registrada neste mês.</td></tr>}
           </tbody>
           <tfoot><tr className="font-bold"><th scope="row" colSpan={2}>Total das entradas</th><td className="text-right text-emerald-700">{currency(totalIncome)}</td></tr></tfoot>
         </table>

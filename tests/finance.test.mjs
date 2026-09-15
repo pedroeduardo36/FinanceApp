@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount } from '../src/lib/finance.ts';
+import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows } from '../src/lib/finance.ts';
 import { collectPages, requireMutation, requestSequence } from '../src/lib/dataCore.ts';
-const row = (date, value, type = 'receita') => ({ id: date, user_id: 'a', descricao: 'Teste', data_transacao: date, valor: value, tipo: type });
+const row = (date, value, type = 'receita', extra = {}) => ({ id: date, user_id: 'a', descricao: 'Teste', data_transacao: date, valor: value, tipo: type, ...extra });
 
 test('parcelas preservam o dia original após meses curtos e distribuem centavos', () => {
   const parts = installments('100', 3, '2026-01-31');
@@ -44,6 +44,20 @@ test('orçamentos usam todas e somente as receitas do mês civil selecionado', (
   assert.deepEqual(monthlyIncome(rows, '2026-02').map(item => item.valor), [100, 20]);
   assert.equal(shiftMonth('2026-12', 1), '2027-01');
   assert.equal(shiftMonth('2026-01', -1), '2025-12');
+});
+test('aulas particulares são agrupadas por categoria e subcategoria com os detalhes preservados', () => {
+  const rows = [
+    row('2026-09-01', 40, 'receita', { id: 'a', descricao: 'Piano', categoria: 'Salário', subcategoria: 'Aulas Particulares', responsavel: 'Pedro' }),
+    row('2026-09-02', 60, 'receita', { id: 'b', descricao: 'Violão', categoria: ' salário ', subcategoria: ' aulas particulares ', responsavel: 'Ana' }),
+    row('2026-09-03', 20, 'receita', { id: 'c', descricao: 'Empresa', categoria: 'Salário', subcategoria: 'CLT', responsavel: 'Pedro' }),
+  ];
+  const grouped = budgetIncomeRows(rows, '2026-09');
+  assert.deepEqual(grouped.map(item => ({ title: item.title, value: item.value, grouped: item.grouped })), [
+    { title: 'Aulas Particulares', value: 100, grouped: true },
+    { title: 'Empresa', value: 20, grouped: false },
+  ]);
+  assert.equal(grouped[0].responsible, 'Vários responsáveis');
+  assert.deepEqual(grouped[0].details.map(item => item.descricao), ['Piano', 'Violão']);
 });
 test('distribuição percentual preserva centavos e valida os limites', () => {
   assert.equal(budgetAmount(1000, 12.34), 123.4);

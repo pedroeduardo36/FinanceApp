@@ -1,5 +1,12 @@
 # Movimentação atômica de caixinhas
 
+## Subcategoria das transações
+
+Execute `transacoes_subcategoria.sql` no SQL Editor antes de publicar a agregação de
+**Aulas Particulares**. O script adiciona a coluna opcional `subcategoria` sem alterar os
+registros existentes. Transações antigas continuam válidas e podem receber a subcategoria
+quando forem editadas no aplicativo.
+
 ## Orçamentos mensais
 
 Antes de abrir a nova aba **Orçamentos**, execute todo o arquivo `orcamentos.sql` em

@@ -84,6 +84,40 @@ export function monthlyIncome(rows: Transacao[], month: string): Transacao[] {
   }).sort((a, b) => a.data_transacao.localeCompare(b.data_transacao) || a.descricao.localeCompare(b.descricao));
 }
 
+export interface BudgetIncomeRow {
+  id: string;
+  title: string;
+  responsible: string;
+  value: number;
+  details: Transacao[];
+  grouped: boolean;
+}
+
+export function budgetIncomeRows(rows: Transacao[], month: string): BudgetIncomeRow[] {
+  const income = monthlyIncome(rows, month);
+  const normalize = (value?: string | null) => value?.trim().toLocaleLowerCase('pt-BR') ?? '';
+  const lessons = income.filter(row => normalize(row.categoria) === 'salário'
+    && normalize(row.subcategoria) === 'aulas particulares');
+  const others = income.filter(row => !lessons.includes(row)).map(row => ({
+    id: row.id,
+    title: row.descricao,
+    responsible: row.responsavel?.trim() || 'Não informado',
+    value: row.valor,
+    details: [row],
+    grouped: false,
+  }));
+  if (!lessons.length) return others;
+  const responsibles = [...new Set(lessons.map(row => row.responsavel?.trim() || 'Não informado'))];
+  return [{
+    id: 'aulas-particulares',
+    title: 'Aulas Particulares',
+    responsible: responsibles.length === 1 ? responsibles[0] : 'Vários responsáveis',
+    value: sumMoney(lessons.map(row => row.valor)),
+    details: lessons,
+    grouped: true,
+  }, ...others];
+}
+
 export function budgetAmount(total: number, percentage: number): number {
   const totalCents = cents(total);
   const percentageUnits = Math.round(percentage * 1_000_000);

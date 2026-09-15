@@ -1,18 +1,18 @@
 import { Dialog } from '@/components/ui/Dialog';
 import { installments, localDate, validDate } from '@/lib/finance';
-import { RESPONSAVEIS } from '@/lib/options';
+import { RESPONSAVEIS, RESPONSAVEL_PADRAO } from '@/lib/options';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
 import { moneyInput } from '@/lib/finance';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Transacao } from '@/types';
 import {
   Plus, Tag, X, Edit2, Trash2,
   ShoppingCart, Utensils, Car, Coffee, Home,
   Zap, Smartphone, Heart, Briefcase, DollarSign, PiggyBank, ArrowRightLeft,
-  RotateCcw, CreditCard
+  RotateCcw, CreditCard, User
 } from 'lucide-react';
 
 const ICONES_TRANSACOES: Record<string, React.ElementType> = {
@@ -41,8 +41,11 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const [valorTotal, setValorTotal] = useState('');
   const [tipo, setTipo] = useState<Transacao['tipo']>('despesa');
   const [dataTransacao, setDataTransacao] = useState(localDate());
+  const [categoriaId, setCategoriaId] = useState('');
   const [categoria, setCategoria] = useState('');
-  const [responsavel, setResponsavel] = useState(RESPONSAVEIS[1]);
+  const [subcategoria, setSubcategoria] = useState('');
+  const [responsavel, setResponsavel] = useState(RESPONSAVEL_PADRAO);
+  const [criandoResponsavel, setCriandoResponsavel] = useState(false);
   const [icone, setIcone] = useState('tag');
   const [parcelas, setParcelas] = useState(1);
   const [cartaoId, setCartaoId] = useState('');
@@ -52,6 +55,11 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const totalPaginas = Math.max(1, Math.ceil(transacoes.length / 50));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
   const ordenadas = [...transacoes].sort((a, b) => b.data_transacao.localeCompare(a.data_transacao) || a.id.localeCompare(b.id));
+  const responsaveisDisponiveis = useMemo(() => [...new Set([
+    ...RESPONSAVEIS,
+    ...transacoes.map(transaction => transaction.responsavel?.trim())
+      .filter((name): name is string => typeof name === 'string' && name.toLocaleLowerCase('pt-BR') !== 'eu'),
+  ])], [transacoes]);
 
   // Estado do Toast
   const [toast, setToast] = useState<{ visible: boolean; transacao: Transacao | null }>({ visible: false, transacao: null });
@@ -64,8 +72,12 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setValorTotal(t.valor.toString());
       setTipo(t.tipo);
       setDataTransacao(t.data_transacao.split('T')[0]);
+      setCategoriaId(categoriasList.find(item => item.nome === t.categoria
+        && (item.subcategoria?.trim() || '') === (t.subcategoria?.trim() || ''))?.id ?? '');
       setCategoria(t.categoria || '');
-      setResponsavel(t.responsavel || RESPONSAVEIS[1]);
+      setSubcategoria(t.subcategoria || '');
+      setResponsavel(t.responsavel?.toLocaleLowerCase('pt-BR') === 'eu' ? RESPONSAVEL_PADRAO : t.responsavel || RESPONSAVEL_PADRAO);
+      setCriandoResponsavel(false);
       setIcone(t.icone || 'tag');
       setCartaoId(t.cartao_id || '');
       setParcelas(1);
@@ -75,8 +87,11 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       setValorTotal('');
       setTipo('despesa');
       setDataTransacao(localDate());
+      setCategoriaId('');
       setCategoria('');
-      setResponsavel(RESPONSAVEIS[1]);
+      setSubcategoria('');
+      setResponsavel(RESPONSAVEL_PADRAO);
+      setCriandoResponsavel(false);
       setIcone('tag');
       setCartaoId('');
       setParcelas(1);
@@ -112,10 +127,11 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     if (loading) return;
     setLoading(true);
     try {
-      if (!descricao.trim() || !validDate(dataTransacao)) throw new Error('Preencha a descrição e uma data válida.');
+      if (!descricao.trim() || !responsavel.trim() || !validDate(dataTransacao)) throw new Error('Preencha a descrição, o responsável e uma data válida.');
       const payloadBase = {
         user_id: userId, descricao: descricao.trim(), valor: moneyInput(valorTotal), tipo,
-        categoria: categoria || 'Geral', responsavel: responsavel.trim(), icone,
+        categoria: categoria || 'Geral', subcategoria: subcategoria.trim() || null,
+        responsavel: responsavel.trim(), icone,
         cartao_id: tipo === 'receita' ? null : cartaoId || null,
       };
       if (editandoId) {
@@ -162,7 +178,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
               const cartaoVinculado = cartoesList.find(c => c.id === t.cartao_id);
 
               return (
-                <div key={t.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
+                <article key={t.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-xl flex items-center justify-center ${isReceita ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                       <IconeCard size={20} />
@@ -171,7 +187,8 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                       <h4 className="font-semibold text-slate-800">{t.descricao}</h4>
                       <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
                         <span>{new Date(t.data_transacao).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
-                        {t.categoria && <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md"><Tag size={12} /> {t.categoria}</span>}
+                        {t.categoria && <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md"><Tag size={12} /> {t.categoria}{t.subcategoria ? ` · ${t.subcategoria}` : ''}</span>}
+                        {t.responsavel && <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 font-medium text-blue-700"><User size={12} /> {t.responsavel}</span>}
                         {cartaoVinculado && <span className="flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md font-medium"><CreditCard size={12} /> {cartaoVinculado.nome}</span>}
                       </div>
                     </div>
@@ -186,7 +203,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                       <button onClick={() => handleExcluir(t)} className="text-slate-600 hover:text-red-600 hover:bg-red-50 p-2 rounded-md transition-colors" aria-label="Excluir"><Trash2 size={16} /></button>
                     </div>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
@@ -239,15 +256,27 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-5" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Categoria</label>
-                  <select id="transacoespage-field-5" value={categoria} onChange={(e) => setCategoria(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <select id="transacoespage-field-5" value={categoriaId} onChange={(e) => {
+                    setCategoriaId(e.target.value);
+                    const selected = categoriasList.find(item => item.id === e.target.value);
+                    setCategoria(selected?.nome ?? '');
+                    setSubcategoria(selected?.subcategoria?.trim() ?? '');
+                  }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     <option value="">Geral</option>
-                    {categoriasList.map((c) => <option key={c.id} value={c.nome}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
+                    {categoriasList.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
                   </select>
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-6" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Responsável</label>
-                  <input id="transacoespage-field-6" value={responsavel} onChange={e => setResponsavel(e.target.value)} list="responsaveis-sugeridos" className="w-full border rounded-lg p-2" />
-                  <datalist id="responsaveis-sugeridos">{RESPONSAVEIS.map(resp => <option key={resp} value={resp} />)}</datalist>
+                  {criandoResponsavel ? <>
+                    <input id="transacoespage-field-6" autoFocus required maxLength={80} value={responsavel} onChange={e => setResponsavel(e.target.value)} placeholder="Nome do novo responsável" className="w-full border rounded-lg p-2" />
+                    <button type="button" onClick={() => { setCriandoResponsavel(false); setResponsavel(RESPONSAVEL_PADRAO); }} className="mt-1 text-xs font-medium text-emerald-700 underline">Escolher responsável existente</button>
+                  </> : <>
+                    <select id="transacoespage-field-6" required value={responsavel} onChange={e => setResponsavel(e.target.value)} className="w-full border rounded-lg bg-white p-2">
+                      {responsaveisDisponiveis.map(resp => <option key={resp} value={resp}>{resp}</option>)}
+                    </select>
+                    <button type="button" onClick={() => { setCriandoResponsavel(true); setResponsavel(''); }} className="mt-1 text-xs font-medium text-emerald-700 underline">Criar novo responsável</button>
+                  </>}
                 </div>
 
                 {tipo === 'despesa' && !editandoId && (

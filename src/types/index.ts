@@ -5,6 +5,7 @@ export interface Cartao {
 export interface Transacao {
   id: string; user_id: string; descricao: string; valor: number; data_transacao: string;
   tipo: 'receita' | 'despesa' | 'fatura_cartao'; categoria?: string | null;
+  subcategoria?: string | null;
   parcela_atual?: number | null; total_parcelas?: number | null;
   responsavel?: string | null; icone?: string | null; cartao_id?: string | null;
 }

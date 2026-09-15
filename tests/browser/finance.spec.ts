@@ -25,11 +25,18 @@ async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>)
     if (table === 'transacoes' && requested === A && delayA) await delayA;
     const base = { id: requested, user_id: requested };
     const seeds: Record<string, object[]> = {
-      transacoes: [{...base, descricao:requested===A?'Dado privado A':'Dado privado B',responsavel:'Pedro',valor:100,tipo:'receita',data_transacao:'2026-09-01'}],
+      transacoes: [
+        {...base, id:`${requested}-lesson-1`, descricao:requested===A?'Dado privado A':'Dado privado B',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:10,tipo:'receita',data_transacao:'2026-09-30'},
+        {...base, id:`${requested}-lesson-2`, descricao:'Aula de piano',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:10,tipo:'receita',data_transacao:'2026-09-02'},
+        {...base, id:`${requested}-lesson-3`, descricao:'Aula de canto',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:10,tipo:'receita',data_transacao:'2026-09-03'},
+        {...base, id:`${requested}-lesson-4`, descricao:'Aula de violão',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:10,tipo:'receita',data_transacao:'2026-09-04'},
+        {...base, id:`${requested}-lesson-5`, descricao:'Aula de teoria',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:20,tipo:'receita',data_transacao:'2026-09-05'},
+        {...base, id:`${requested}-lesson-6`, descricao:'Última aula do mês',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:40,tipo:'receita',data_transacao:'2026-09-29'},
+      ],
       cartoes_credito: [{...base,nome:'Cartão de teste',banco:'Banco de teste',limite:1000,tipo:'credito',cor:'#94a3b8'}],
       caixinhas: [{...base,nome:'Reserva de teste',saldo_inicial:100,meta_valor:200,data_criacao:'2026-09-01'}],
       compromissos: [{...base,descricao:'Internet de teste',valor:100,dia_vencimento:5}],
-      categorias: [{...base,nome:'Categoria de teste'}],
+      categorias: [{...base,nome:'Categoria de teste'},{...base,id:`${requested}-salary`,nome:'Salário',subcategoria:'Aulas Particulares'}],
       orcamentos: [{...base,nome:'Moradia',criado_em:'2026-08-01T00:00:00Z'}],
       orcamento_percentuais: [{...base,orcamento_id:requested,competencia:'2026-09-01',percentual:25}],
     };
@@ -95,8 +102,16 @@ test('orçamentos exibem a origem das entradas e preservam percentuais por mês'
  await mockApi(page); await page.goto('#orcamentos'); await login(page);
  await expect(page.getByRole('heading',{name:'Orçamentos',exact:true})).toBeVisible();
  const incomeTable=page.getByRole('table',{name:/Origem das entradas/});
- await expect(incomeTable.getByText('Dado privado A')).toBeVisible();
- await expect(incomeTable.getByText('Pedro')).toBeVisible();
+ await expect(incomeTable.getByText('Aulas Particulares',{exact:true})).toBeVisible();
+ await expect(incomeTable.getByRole('cell',{name:'Pedro',exact:true})).toBeVisible();
+ await incomeTable.getByText('Aulas Particulares',{exact:true}).hover();
+ const breakdown=page.getByRole('dialog',{name:'Entradas somadas em Aulas Particulares'});
+ await expect(breakdown).toBeVisible();
+ await expect(breakdown.getByText('Entradas somadas (6)')).toBeVisible();
+ await expect(breakdown.locator('li')).toHaveCount(6);
+ await expect(breakdown.getByText('Dado privado A')).toBeVisible();
+ await breakdown.getByText('Última aula do mês').scrollIntoViewIfNeeded();
+ await expect(breakdown.getByText('Última aula do mês')).toBeVisible();
  await expect(page.getByLabel('Porcentagem')).toHaveValue('25');
  await expect(page.getByText('R$ 25,00',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Ir para o próximo mês'}).click();
@@ -115,17 +130,24 @@ test('orçamentos exibem a origem das entradas e preservam percentuais por mês'
 
 test('formulário envia parcelas com datas e centavos corretos', async ({page}) => {
   await mockApi(page); await page.goto('#transacoes'); await login(page);
+  const transactionCard=page.getByRole('article').filter({hasText:'Dado privado A'});
+  await expect(transactionCard.getByText('Pedro',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Nova Transação'}).click();
   const dialog=page.getByRole('dialog');
+  expect(await dialog.getByLabel('Responsável',{exact:true}).locator('option').allTextContents()).not.toContain('Eu');
   await dialog.getByLabel('Descrição',{exact:true}).fill('Compra parcelada');
   await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('100');
   await dialog.getByLabel('Data Base',{exact:true}).fill('2026-01-31');
+  await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Salário (Aulas Particulares)'});
+  await dialog.getByRole('button',{name:'Criar novo responsável'}).click();
+  await dialog.getByLabel('Responsável',{exact:true}).fill('Ana');
   await dialog.getByLabel('Número de Parcelas',{exact:true}).fill('3');
   const sent=page.waitForRequest(r => r.method()==='POST' && r.url().includes('/rest/v1/transacoes'));
   await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
-  const rows=(await sent).postDataJSON() as {valor:number;data_transacao:string}[];
+  const rows=(await sent).postDataJSON() as {valor:number;data_transacao:string;categoria:string;subcategoria:string;responsavel:string}[];
   expect(rows.map(r=>r.valor)).toEqual([33.34,33.33,33.33]);
   expect(rows.map(r=>r.data_transacao)).toEqual(['2026-01-31','2026-02-28','2026-03-31']);
+  expect(rows[0]).toMatchObject({categoria:'Salário',subcategoria:'Aulas Particulares',responsavel:'Ana'});
   await expect(dialog).not.toBeVisible();
 });
 

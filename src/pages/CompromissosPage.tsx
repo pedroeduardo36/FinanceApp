@@ -1,5 +1,5 @@
 import { Dialog } from '@/components/ui/Dialog';
-import { RESPONSAVEIS } from '@/lib/options';
+import { RESPONSAVEIS, RESPONSAVEL_PADRAO } from '@/lib/options';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
@@ -25,7 +25,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
   const [valor, setValor] = useState('');
   const [diaVencimento, setDiaVencimento] = useState('5');
   const [categoria, setCategoria] = useState('');
-  const [responsavel, setResponsavel] = useState(RESPONSAVEIS[1]);
+  const [responsavel, setResponsavel] = useState(RESPONSAVEL_PADRAO);
   const [salvando, setSalvando] = useState(false);
 
   // Estado do Toast de Desfazer
@@ -42,14 +42,14 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
       setValor(c.valor.toString());
       setDiaVencimento(c.dia_vencimento.toString());
       setCategoria(c.categoria || '');
-      setResponsavel(c.responsavel || RESPONSAVEIS[1]);
+      setResponsavel(c.responsavel?.toLocaleLowerCase('pt-BR') === 'eu' ? RESPONSAVEL_PADRAO : c.responsavel || RESPONSAVEL_PADRAO);
     } else {
       setEditandoId(null);
       setDescricao('');
       setValor('');
       setDiaVencimento('5');
       setCategoria('');
-      setResponsavel(RESPONSAVEIS[1]);
+      setResponsavel(RESPONSAVEL_PADRAO);
     }
     setIsModalOpen(true);
   };
