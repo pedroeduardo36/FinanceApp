@@ -24,6 +24,7 @@ export function RelatoriosPage({ transacoes }: RelatoriosPageProps) {
   const [dataFim, setDataFim] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'receita' | 'despesa'>('todos');
   const [filtroResponsavel, setFiltroResponsavel] = useState('Todos');
+  const [responsavelAtivo, setResponsavelAtivo] = useState<string | null>(null);
 
   const handleExportar = () => {
     window.print();
@@ -235,6 +236,15 @@ export function RelatoriosPage({ transacoes }: RelatoriosPageProps) {
               </ResponsiveContainer>
             )}
           </div>
+          {relatorio.dadosResponsaveis.length > 0 && <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4" onMouseLeave={() => setResponsavelAtivo(null)}>
+            {relatorio.dadosResponsaveis.map(item => <div key={item.name} className="relative">
+              <button type="button" aria-expanded={responsavelAtivo === item.name} onMouseEnter={() => setResponsavelAtivo(item.name)} onFocus={() => setResponsavelAtivo(item.name)} onClick={() => setResponsavelAtivo(current => current === item.name ? null : item.name)} className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{item.name}</button>
+              {responsavelAtivo === item.name && <div role="dialog" aria-label={`Despesas de ${item.name}`} className="absolute bottom-full right-0 z-20 mb-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <div className="mb-2 flex items-center justify-between"><strong className="text-sm text-slate-800">{item.name}</strong><span className="text-xs font-semibold text-red-600">{currency(item.value)}</span></div>
+                <ul className="max-h-48 space-y-2 overflow-y-auto">{item.details.map(transaction => <li key={transaction.id} className="flex justify-between gap-3 border-t border-slate-100 pt-2 text-xs"><div><p className="font-medium text-slate-700">{transaction.descricao}</p><p className="text-slate-500">{dateLabel(transaction.data_transacao)} · {transaction.categoria || 'Geral'}</p></div><span className="shrink-0 font-medium text-slate-700">{currency(transaction.valor)}</span></li>)}</ul>
+              </div>}
+            </div>)}
+          </div>}
         </div>
       </div>
     </div>

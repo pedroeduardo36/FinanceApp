@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { editarDespesaCaixinha, excluirDespesaCaixinha } from '../src/lib/gerenciarDespesaCaixinha.ts';
 
 const dados = {
-  transacaoId: 'transacao', descricao: '  Livro  ', valor: '25.90', dataTransacao: '2026-09-15',
+  transacaoId: 'transacao', descricao: '  Livro  ', detalhes: '  Compra didática  ', valor: '25.90', dataTransacao: '2026-09-15',
   categoria: ' Educação ', subcategoria: ' Livros ', responsavel: ' Pedro ', icone: 'book',
   orcamentoId: 'orcamento',
 };
@@ -16,7 +16,7 @@ test('edição envia os dados normalizados para a RPC atômica', async () => {
   assert.deepEqual(chamada, { nome:'editar_despesa_caixinha', parametros: {
     p_transacao_id:'transacao', p_descricao:'Livro', p_valor:'25.90', p_data_transacao:'2026-09-15',
     p_categoria:'Educação', p_subcategoria:'Livros', p_responsavel:'Pedro', p_icone:'book',
-    p_orcamento_id:'orcamento',
+    p_orcamento_id:'orcamento', p_detalhes:'Compra didática',
   } });
 });
 

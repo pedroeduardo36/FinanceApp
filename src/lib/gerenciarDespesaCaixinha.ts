@@ -1,5 +1,5 @@
 interface DadosDespesaCaixinha {
-  transacaoId: string; descricao: string; valor: string; dataTransacao: string;
+  transacaoId: string; descricao: string; detalhes: string | null; valor: string; dataTransacao: string;
   categoria: string; subcategoria: string | null; responsavel: string; icone: string;
   orcamentoId: string | null;
 }
@@ -8,7 +8,7 @@ interface ClienteEdicao {
   rpc: (nome: 'editar_despesa_caixinha', parametros: {
     p_transacao_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
     p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
-    p_orcamento_id: string | null;
+    p_orcamento_id: string | null; p_detalhes: string | null;
   }) => PromiseLike<{ error: { message: string } | null }>;
 }
 interface ClienteExclusao {
@@ -59,6 +59,7 @@ export async function editarDespesaCaixinha(cliente: ClienteEdicao, dados: Dados
       p_responsavel: dados.responsavel.trim(),
       p_icone: dados.icone,
       p_orcamento_id: dados.orcamentoId || null,
+      p_detalhes: dados.detalhes?.trim() || null,
     });
   } catch {
     throw new Error('Não foi possível alterar a despesa. Atualize os saldos antes de tentar novamente.');

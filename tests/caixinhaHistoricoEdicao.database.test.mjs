@@ -48,6 +48,9 @@ before(async () => {
   const sql = await readFile(new URL('../database/caixinha_historico_edicao.sql', import.meta.url), 'utf8');
   await db.exec(sql);
   await db.exec(sql);
+  const descriptionSql = await readFile(new URL('../database/transacao_descricao.sql', import.meta.url), 'utf8');
+  await db.exec(descriptionSql);
+  await db.exec(descriptionSql);
 });
 
 beforeEach(async () => {
@@ -128,9 +131,22 @@ test('RPCs não elevam privilégios e anon não pode executá-las', async () => 
     has_function_privilege('anon', p.oid, 'EXECUTE') as anon_execute,
     has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-    where n.nspname='public' and p.proname in ('editar_despesa_caixinha','excluir_despesa_caixinha') order by p.proname`);
+    where n.nspname='public' and ((p.proname='editar_despesa_caixinha' and p.pronargs=10)
+      or p.proname='excluir_despesa_caixinha') order by p.proname`);
   assert.deepEqual(rows, [
     { proname:'editar_despesa_caixinha', prosecdef:false, anon_execute:false, authenticated_execute:true },
     { proname:'excluir_despesa_caixinha', prosecdef:false, anon_execute:false, authenticated_execute:true },
   ]);
+});
+
+test('descrição opcional é gravada junto com despesa paga pela caixinha', async () => {
+  const id = (await db.query(
+    'select public.registrar_despesa_caixinha($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as id',
+    [CAIXINHA, 'Livro', '10', '2026-09-10', 'Educação', 'Livros', 'Pedro', 'book', A, 'Compra didática'],
+  )).rows[0].id;
+  assert.equal((await db.query('select detalhes from public.transacoes where id=$1', [id])).rows[0].detalhes, 'Compra didática');
+  await assert.rejects(db.query(
+    'select public.editar_despesa_caixinha($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    [id, 'Livro', '10', '2026-09-10', 'Educação', 'Livros', 'Pedro', 'book', A, 'x'.repeat(501)],
+  ), /DESCRICAO_MUITO_LONGA/);
 });

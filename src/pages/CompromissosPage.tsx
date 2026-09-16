@@ -3,17 +3,19 @@ import { RESPONSAVEIS, RESPONSAVEL_PADRAO } from '@/lib/options';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
 import { Feedback } from '@/components/ui/Feedback';
-import { moneyInput, sumMoney } from '@/lib/finance';
+import { localDate, moneyInput, sumMoney } from '@/lib/finance';
+import { pagarCompromisso } from '@/lib/pagarCompromisso';
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Compromisso } from '@/types';
-import { Plus, Edit2, Trash2, CalendarDays, RotateCcw, X, Tag, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, CalendarDays, RotateCcw, X, Tag, User, CircleCheck, Loader2 } from 'lucide-react';
 
 interface CompromissosPageProps {
   userId: string;
+  onRefreshTransacoes: () => Promise<void>;
 }
 
-export function CompromissosPage({ userId }: CompromissosPageProps) {
+export function CompromissosPage({ userId, onRefreshTransacoes }: CompromissosPageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const { data: compromissos, loading, error: loadError, reload: fetchData } = useRows('compromissos', userId);
   const { data: categoriasList, error: categoriasError } = useRows('categorias', userId);
@@ -26,7 +28,12 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
   const [diaVencimento, setDiaVencimento] = useState('5');
   const [categoria, setCategoria] = useState('');
   const [responsavel, setResponsavel] = useState(RESPONSAVEL_PADRAO);
+  const [parcelas, setParcelas] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [pagamento, setPagamento] = useState<Compromisso | null>(null);
+  const [valorPagamento, setValorPagamento] = useState('');
+  const [mesPagamento, setMesPagamento] = useState(localDate().slice(0, 7));
+  const [pagando, setPagando] = useState(false);
 
   // Estado do Toast de Desfazer
   const [toast, setToast] = useState<{ visible: boolean; compromisso: Compromisso | null }>({
@@ -39,10 +46,11 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
     if (c) {
       setEditandoId(c.id);
       setDescricao(c.descricao);
-      setValor(c.valor.toString());
+      setValor(c.valor?.toString() ?? '');
       setDiaVencimento(c.dia_vencimento.toString());
       setCategoria(c.categoria || '');
       setResponsavel(c.responsavel?.toLocaleLowerCase('pt-BR') === 'eu' ? RESPONSAVEL_PADRAO : c.responsavel || RESPONSAVEL_PADRAO);
+      setParcelas(c.parcelas_restantes?.toString() ?? '');
     } else {
       setEditandoId(null);
       setDescricao('');
@@ -50,6 +58,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
       setDiaVencimento('5');
       setCategoria('');
       setResponsavel(RESPONSAVEL_PADRAO);
+      setParcelas('');
     }
     setIsModalOpen(true);
   };
@@ -59,22 +68,25 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
     setActionError(null);
     setSalvando(true);
     try {
-      const valorNum = moneyInput(valor);
+      const valorNum = valor.trim() ? moneyInput(valor) : null;
       const diaNum = Number(diaVencimento);
+      const parcelasNum = parcelas.trim() ? Number(parcelas) : null;
       if (!Number.isInteger(diaNum) || diaNum < 1 || diaNum > 31) throw new Error('Informe um dia entre 1 e 31.');
+      if (parcelasNum !== null && (!Number.isInteger(parcelasNum) || parcelasNum < 0 || parcelasNum > 600)) throw new Error('Informe até 600 parcelas.');
       const payload = {
         user_id: userId,
         descricao,
         valor: valorNum,
         dia_vencimento: diaNum,
         categoria: categoria || 'Geral',
-        responsavel
+        responsavel,
+        parcelas_restantes: parcelasNum,
       };
 
       if (editandoId) {
         await requireMutation(supabase.from('compromissos').update(payload).eq('id', editandoId).eq('user_id', userId).select());
       } else {
-        await requireMutation(supabase.from('compromissos').insert([payload]).select());
+        await requireMutation(supabase.from('compromissos').insert([{ ...payload, competencia_inicio: `${localDate().slice(0, 7)}-01` }]).select());
       }
       setIsModalOpen(false);
       await fetchData();
@@ -83,6 +95,26 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
     } finally {
       setSalvando(false);
     }
+  };
+
+  const abrirPagamento = (compromisso: Compromisso) => {
+    setActionError(null);
+    setPagamento(compromisso);
+    setValorPagamento(compromisso.valor?.toString() ?? '');
+    setMesPagamento(localDate().slice(0, 7));
+  };
+
+  const handlePagamento = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pagamento || pagando) return;
+    setPagando(true); setActionError(null);
+    try {
+      await pagarCompromisso(supabase, pagamento.id, valorPagamento, mesPagamento);
+      setPagamento(null);
+      await Promise.all([fetchData(), onRefreshTransacoes()]);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Não foi possível registrar o pagamento.');
+    } finally { setPagando(false); }
   };
 
   const handleExcluir = async (c: Compromisso) => {
@@ -109,7 +141,7 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
     }
   };
 
-  const totalCustosFixos = sumMoney(compromissos.map(c => c.valor));
+  const totalCustosFixos = sumMoney(compromissos.flatMap(c => c.valor == null ? [] : [c.valor]));
 
   return (
     <div className="space-y-6 relative">
@@ -171,16 +203,18 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
                           <User size={12} /> {c.responsavel}
                         </span>
                       )}
+                      {c.parcelas_restantes != null && <span className="rounded-md bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700">{c.parcelas_restantes === 0 ? 'Concluído' : `${c.parcelas_restantes} parcela${c.parcelas_restantes === 1 ? '' : 's'} restante${c.parcelas_restantes === 1 ? '' : 's'}`}</span>}
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-4 md:gap-6">
                   <span className="text-base font-bold text-slate-800">
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c.valor)}
+                    {c.valor == null ? <span className="text-sm text-slate-500">Valor variável</span> : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c.valor)}
                   </span>
 
                   <div className="flex gap-2 opacity-100  transition-opacity">
+                    <button disabled={c.parcelas_restantes === 0} onClick={() => abrirPagamento(c)} className="p-2 text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40" title="Marcar como pago" aria-label={`Marcar ${c.descricao} como pago`}><CircleCheck size={17} /></button>
                     <button onClick={() => abrirModal(c)} className="text-slate-600 hover:text-blue-600 hover:bg-blue-50 p-2 rounded-md transition-colors" title="Editar" aria-label="Editar">
                       <Edit2 size={16} />
                     </button>
@@ -215,13 +249,19 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="compromissospage-field-1" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Valor Mensal (R$)</label>
-                  <input id="compromissospage-field-1" type="number" min="0.01" step="0.01" required value={valor} onChange={(e) => setValor(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                  <label htmlFor="compromissospage-field-1" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Valor previsto (Opcional)</label>
+                  <input id="compromissospage-field-1" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
                 <div>
                   <label htmlFor="compromissospage-field-2" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Dia do Vencimento</label>
                   <input id="compromissospage-field-2" type="number" min="1" max="31" required value={diaVencimento} onChange={(e) => setDiaVencimento(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="compromissospage-installments" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Parcelas restantes (Opcional)</label>
+                <input id="compromissospage-installments" type="number" min="0" max="600" value={parcelas} onChange={(e) => setParcelas(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                <p className="mt-1 text-xs text-slate-500">Deixe vazio para um compromisso recorrente sem prazo.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -246,6 +286,20 @@ export function CompromissosPage({ userId }: CompromissosPageProps) {
                 {salvando ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
+          </form>
+        </Dialog>
+      )}
+
+      {pagamento && (
+        <Dialog label={`Pagamento de ${pagamento.descricao}`} onClose={() => { if (!pagando) setPagamento(null); }}>
+          <form onSubmit={handlePagamento} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Marcar como pago</p><h3 className="text-lg font-bold text-slate-800">{pagamento.descricao}</h3></div><button type="button" disabled={pagando} onClick={() => setPagamento(null)} aria-label="Fechar" className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"><X size={20} /></button></div>
+            <Feedback error={actionError} />
+            <div className="space-y-4">
+              <div><label htmlFor="commitment-payment-month" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Mês do pagamento</label><input id="commitment-payment-month" type="month" required value={mesPagamento} onChange={e => setMesPagamento(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2" /></div>
+              <div><label htmlFor="commitment-payment-value" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">Valor pago (R$)</label><input id="commitment-payment-value" type="number" min="0.01" step="0.01" required autoFocus value={valorPagamento} onChange={e => setValorPagamento(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2" /></div>
+            </div>
+            <button type="submit" disabled={pagando} className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 py-2.5 font-medium text-white disabled:opacity-60">{pagando && <Loader2 size={16} className="animate-spin" />}{pagando ? 'Registrando...' : 'Confirmar pagamento'}</button>
           </form>
         </Dialog>
       )}

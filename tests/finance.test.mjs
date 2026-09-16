@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows, savingsMonthlyHistory } from '../src/lib/finance.ts';
+import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows, savingsMonthlyHistory, monthlyProjection } from '../src/lib/finance.ts';
 import { collectPages, requireMutation, requestSequence } from '../src/lib/dataCore.ts';
 const row = (date, value, type = 'receita', extra = {}) => ({ id: date, user_id: 'a', descricao: 'Teste', data_transacao: date, valor: value, tipo: type, ...extra });
 
@@ -84,6 +84,18 @@ test('histórico da caixinha resume entradas, saídas e saldo acumulado por mês
     { month:'2026-09', income:50, expense:10, balance:120 },
     { month:'2026-08', income:100, expense:20, balance:80 },
   ]);
+});
+test('projeção mensal combina transações e compromissos sem duplicar pagamentos',()=>{
+  const commitments=[
+    {id:'c1',user_id:'a',descricao:'Aluguel',valor:100,dia_vencimento:5,parcelas_restantes:null,competencia_inicio:'2026-09-01'},
+    {id:'c2',user_id:'a',descricao:'Energia',valor:null,dia_vencimento:10,parcelas_restantes:2,competencia_inicio:'2026-09-01'},
+  ];
+  const rows=[row('2026-09-05',100,'receita'),row('2026-09-06',30,'despesa',{compromisso_id:'c1',competencia_compromisso:'2026-09-01'})];
+  const september=monthlyProjection(rows,commitments,'2026-09','2026-09');
+  assert.deepEqual({income:september.income,expense:september.expense,balance:september.balance,variable:september.variableCommitments},
+    {income:100,expense:30,balance:70,variable:1});
+  const october=monthlyProjection(rows,commitments,'2026-10','2026-09');
+  assert.deepEqual({expense:october.expense,variable:october.variableCommitments},{expense:100,variable:1});
 });
 test('paginação continua mesmo quando o servidor limita uma página abaixo do pedido', async () => {
   const data = Array.from({length:1201}, (_,i)=>i);

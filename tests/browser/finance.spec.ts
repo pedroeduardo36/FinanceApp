@@ -34,6 +34,7 @@ async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>)
         {...base, id:`${requested}-lesson-5`, descricao:'Aula de teoria',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:20,tipo:'receita',data_transacao:'2026-09-05'},
         {...base, id:`${requested}-lesson-6`, descricao:'Última aula do mês',responsavel:'Pedro',categoria:'Salário',subcategoria:'Aulas Particulares',valor:40,tipo:'receita',data_transacao:'2026-09-29'},
         {...base, id:`${requested}-expense-1`, descricao:'Supermercado',responsavel:'Pedro',categoria:'Categoria de teste',subcategoria:'Mercado',valor:30,tipo:'despesa',data_transacao:'2026-09-12',orcamento_id:requested},
+        {...base, id:`${requested}-shared-expense`, descricao:'Conta conjunta',responsavel:'Ambos',categoria:'Casa',valor:15,tipo:'despesa',data_transacao:'2026-09-12'},
         {...base, id:`${requested}-savings-expense`, descricao:'Livro da reserva',responsavel:'Pedro',categoria:'Categoria de teste',subcategoria:'Mercado',valor:25,tipo:'despesa',data_transacao:'2026-09-10',caixinha_id:requested},
       ],
       cartoes_credito: [{...base,nome:'Cartão de teste',banco:'Banco de teste',limite:1000,tipo:'credito',cor:'#94a3b8'}],
@@ -42,9 +43,11 @@ async function mockApi(page: Page, failMutation = false, delayA?: Promise<void>)
         {...base,id:`${requested}-initial`,caixinha_id:requested,tipo:'ajuste',valor:100,descricao:'Saldo inicial',data_movimento:'2026-08-01',criado_em:'2026-08-01T10:00:00Z'},
         {...base,id:`${requested}-saving-expense`,caixinha_id:requested,transacao_id:`${requested}-savings-expense`,tipo:'gasto',valor:-25,descricao:'Livro da reserva',data_movimento:'2026-09-10',criado_em:'2026-09-10T10:00:00Z'},
       ],
-      compromissos: [{...base,descricao:'Internet de teste',valor:100,dia_vencimento:5}],
+      compromissos: [{...base,descricao:'Internet de teste',valor:100,dia_vencimento:5,parcelas_restantes:3,competencia_inicio:'2026-09-01',categoria:'Casa',responsavel:'Pedro'}],
       categorias: [
         {...base,nome:'Categoria de teste',subcategoria:'Mercado',tipo:'despesa',orcamento_id:requested},
+        {...base,id:`${requested}-food-market`,nome:'Alimentação',subcategoria:'Mercado',tipo:'despesa',orcamento_id:requested},
+        {...base,id:`${requested}-food-restaurant`,nome:'Alimentação',subcategoria:'Restaurante',tipo:'despesa',orcamento_id:C},
         {...base,id:`${requested}-salary`,nome:'Salário',subcategoria:'Aulas Particulares',tipo:'receita'},
       ],
       orcamentos: [{...base,nome:'Moradia',criado_em:'2026-08-01T00:00:00Z'},{...base,id:C,nome:'Lazer',criado_em:'2026-08-01T00:00:00Z'}],
@@ -69,8 +72,8 @@ test('diálogo associa campos, mantém foco, fecha com Escape e devolve foco ao 
  await page.getByRole('link',{name:'Transações',exact:true}).click();
  const add=page.getByRole('button',{name:'Nova Transação'}); await add.click();
  const dialog=page.getByRole('dialog',{name:'Transação',exact:true});
- await expect(dialog).toBeVisible(); await expect(dialog.getByLabel('Descrição',{exact:true})).toBeVisible();
- await dialog.getByLabel('Descrição',{exact:true}).fill('Teste');
+ await expect(dialog).toBeVisible(); await expect(dialog.getByLabel('Título',{exact:true})).toBeVisible();
+ await dialog.getByLabel('Título',{exact:true}).fill('Teste');
  await page.keyboard.press('Shift+Tab');
  expect(await dialog.evaluate(el=>el.contains(document.activeElement))).toBe(true);
  expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
@@ -82,7 +85,7 @@ test('falha de gravação mantém formulário aberto e não revela erro interno'
  await page.getByRole('button',{name:'Novo Compromisso'}).click();
  const dialog=page.getByRole('dialog');
  await dialog.getByLabel('Descrição',{exact:true}).fill('Aluguel');
- await dialog.getByLabel('Valor Mensal (R$)',{exact:true}).fill('100');
+ await dialog.getByLabel('Valor previsto (Opcional)',{exact:true}).fill('100');
  await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
  await expect(dialog).toBeVisible(); await expect(dialog.getByRole('alert')).toContainText('Erro ao salvar');
  await expect(page.getByText('INTERNAL_SECRET')).toHaveCount(0);
@@ -143,15 +146,19 @@ test('orçamentos exibem a origem das entradas e preservam percentuais por mês'
 
 test('formulário envia parcelas com datas e centavos corretos', async ({page}) => {
   await mockApi(page); await page.goto('#transacoes'); await login(page);
+  await expect(page.getByRole('heading',{level:3,name:/quarta-feira, 30 de setembro de 2026/i})).toBeVisible();
+  await expect(page.getByRole('heading',{level:3})).toHaveCount(8);
   const transactionCard=page.getByRole('article').filter({hasText:'Dado privado A'});
   await expect(transactionCard.getByText('Pedro',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Nova Transação'}).click();
   const dialog=page.getByRole('dialog');
   expect(await dialog.getByLabel('Responsável',{exact:true}).locator('option').allTextContents()).not.toContain('Eu');
-  await dialog.getByLabel('Descrição',{exact:true}).fill('Compra parcelada');
+  await dialog.getByLabel('Título',{exact:true}).fill('Compra parcelada');
+  await dialog.getByLabel('Descrição (Opcional)',{exact:true}).fill('Compra feita em janeiro');
   await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('100');
   await dialog.getByLabel('Data Base',{exact:true}).fill('2026-01-31');
-  await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Categoria de teste (Mercado)'});
+  await dialog.getByLabel('Categoria',{exact:true}).selectOption({label:'Categoria de teste'});
+  await dialog.getByLabel('Subcategoria',{exact:true}).selectOption({label:'Mercado'});
   await expect(dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true})).toHaveValue(A);
   await dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true}).selectOption(C);
   await dialog.getByRole('button',{name:'Criar novo responsável'}).click();
@@ -162,7 +169,7 @@ test('formulário envia parcelas com datas e centavos corretos', async ({page}) 
   const rows=(await sent).postDataJSON() as {valor:number;data_transacao:string;categoria:string;subcategoria:string;responsavel:string}[];
   expect(rows.map(r=>r.valor)).toEqual([33.34,33.33,33.33]);
   expect(rows.map(r=>r.data_transacao)).toEqual(['2026-01-31','2026-02-28','2026-03-31']);
-  expect(rows[0]).toMatchObject({categoria:'Categoria de teste',subcategoria:'Mercado',responsavel:'Ana',orcamento_id:C});
+  expect(rows[0]).toMatchObject({categoria:'Categoria de teste',subcategoria:'Mercado',responsavel:'Ana',orcamento_id:C,detalhes:'Compra feita em janeiro'});
   await expect(dialog).not.toBeVisible();
 });
 
@@ -171,7 +178,7 @@ test('categorias são filtradas por tipo e uma despesa pode usar uma caixinha', 
   await page.getByRole('button',{name:'Nova Transação'}).click();
   const dialog=page.getByRole('dialog',{name:'Transação'});
   const category=dialog.getByLabel('Categoria',{exact:true});
-  await expect(category.locator('option')).toHaveCount(2);
+  await expect(category.locator('option')).toHaveCount(3);
   await expect(category.locator('option',{hasText:'Categoria de teste'})).toHaveCount(1);
   await expect(category.locator('option',{hasText:'Salário'})).toHaveCount(0);
   await dialog.getByLabel('Tipo',{exact:true}).selectOption('receita');
@@ -179,10 +186,18 @@ test('categorias são filtradas por tipo e uma despesa pode usar uma caixinha', 
   await expect(category.locator('option',{hasText:'Categoria de teste'})).toHaveCount(0);
 
   await dialog.getByLabel('Tipo',{exact:true}).selectOption('despesa');
-  await category.selectOption({label:'Categoria de teste (Mercado)'});
+  await category.selectOption({label:'Alimentação'});
+  const subcategory=dialog.getByLabel('Subcategoria',{exact:true});
+  await expect(subcategory.locator('option')).toHaveText(['Selecione uma subcategoria','Mercado','Restaurante']);
+  await subcategory.selectOption({label:'Restaurante'});
+  await expect(dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true})).toHaveValue(C);
+  await category.selectOption({label:'Categoria de teste'});
+  await expect(subcategory.locator('option')).toHaveText(['Selecione uma subcategoria','Mercado']);
+  await subcategory.selectOption({label:'Mercado'});
+  await expect(dialog.getByLabel('Orçamento responsável (Opcional)',{exact:true})).toHaveValue(A);
   await dialog.getByLabel('Pagar com caixinha (Opcional)',{exact:true}).selectOption(A);
   await expect(dialog.getByLabel('Número de Parcelas',{exact:true})).toHaveCount(0);
-  await dialog.getByLabel('Descrição',{exact:true}).fill('Compra com reserva');
+  await dialog.getByLabel('Título',{exact:true}).fill('Compra com reserva');
   await dialog.getByLabel('Valor Total (R$)',{exact:true}).fill('25.90');
   const rpc=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rpc/registrar_despesa_caixinha'));
   await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
@@ -245,6 +260,40 @@ test('nova caixinha pode ser criada com um valor inicial', async ({page}) => {
     nome:'Reserva existente',saldo_inicial:250.75,meta_valor:1000,
   });
   await expect(dialog).not.toBeVisible();
+});
+
+test('compromisso aceita parcelas, valor variável e gera a transação ao ser pago',async({page})=>{
+  await mockApi(page); await page.goto('#recorrentes'); await login(page);
+  await page.getByRole('button',{name:'Novo Compromisso'}).click();
+  let dialog=page.getByRole('dialog',{name:'Compromisso'});
+  await dialog.getByLabel('Descrição',{exact:true}).fill('Energia variável');
+  await dialog.getByLabel('Parcelas restantes (Opcional)',{exact:true}).fill('4');
+  const created=page.waitForRequest(request=>request.method()==='POST'&&request.url().includes('/rest/v1/compromissos'));
+  await dialog.getByRole('button',{name:'Salvar',exact:true}).click();
+  expect((await created).postDataJSON()[0]).toMatchObject({descricao:'Energia variável',valor:null,parcelas_restantes:4,competencia_inicio:'2026-09-01'});
+
+  await page.getByRole('button',{name:'Marcar Internet de teste como pago'}).click();
+  dialog=page.getByRole('dialog',{name:'Pagamento de Internet de teste'});
+  await expect(dialog.getByLabel('Valor pago (R$)',{exact:true})).toHaveValue('100');
+  const paid=page.waitForRequest(request=>request.method()==='POST'&&request.url().includes('/rpc/marcar_compromisso_pago'));
+  await dialog.getByRole('button',{name:'Confirmar pagamento'}).click();
+  expect((await paid).postDataJSON()).toMatchObject({p_compromisso_id:A,p_valor:'100',p_competencia:'2026-09-01'});
+});
+
+test('painel navega entre meses e projeta compromissos futuros',async({page})=>{
+  await mockApi(page); await page.goto('#painel'); await login(page);
+  await page.getByRole('button',{name:'Próximo mês'}).click();
+  await expect(page.getByText('outubro 2026',{exact:true})).toBeVisible();
+  await expect(page.getByText('Internet de teste',{exact:true})).toBeVisible();
+  await expect(page.getByText('R$ 100,00',{exact:true}).first()).toBeVisible();
+});
+
+test('relatório detalha gastos por responsável e compartilhados ao passar o mouse',async({page})=>{
+  await mockApi(page); await page.goto('#relatorios'); await login(page);
+  await page.getByRole('button',{name:'Compartilhado',exact:true}).hover();
+  const details=page.getByRole('dialog',{name:'Despesas de Compartilhado'});
+  await expect(details.getByText('Conta conjunta',{exact:true})).toBeVisible();
+  await expect(details.getByText('R$ 15,00',{exact:true}).first()).toBeVisible();
 });
 
 test('caixinha exibe movimentos e saldo acumulado por mês', async ({page}) => {

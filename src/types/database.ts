@@ -22,7 +22,7 @@ export type Database = {
         Args: {
           p_caixinha_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
           p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
-          p_orcamento_id: string | null;
+          p_orcamento_id: string | null; p_detalhes: string | null;
         };
         Returns: string;
       };
@@ -30,11 +30,15 @@ export type Database = {
         Args: {
           p_transacao_id: string; p_descricao: string; p_valor: string; p_data_transacao: string;
           p_categoria: string; p_subcategoria: string | null; p_responsavel: string; p_icone: string;
-          p_orcamento_id: string | null;
+          p_orcamento_id: string | null; p_detalhes: string | null;
         };
         Returns: undefined;
       };
       excluir_despesa_caixinha: { Args: { p_transacao_id: string }; Returns: undefined };
+      marcar_compromisso_pago: {
+        Args: { p_compromisso_id: string; p_valor: string; p_competencia: string };
+        Returns: string;
+      };
     };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;

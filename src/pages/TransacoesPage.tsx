@@ -23,6 +23,9 @@ const ICONES_TRANSACOES: Record<string, React.ElementType> = {
   'health': Heart, 'work': Briefcase, 'money': DollarSign,
   'bank': PiggyBank, 'transfer': ArrowRightLeft
 };
+const formatadorDia = new Intl.DateTimeFormat('pt-BR', {
+  weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC',
+});
 
 interface TransacoesPageProps {
   userId: string;
@@ -42,10 +45,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   // Estados do Formulário
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [descricao, setDescricao] = useState('');
+  const [detalhes, setDetalhes] = useState('');
   const [valorTotal, setValorTotal] = useState('');
   const [tipo, setTipo] = useState<Transacao['tipo']>('despesa');
   const [dataTransacao, setDataTransacao] = useState(localDate());
-  const [categoriaId, setCategoriaId] = useState('');
   const [categoria, setCategoria] = useState('');
   const [subcategoria, setSubcategoria] = useState('');
   const [responsavel, setResponsavel] = useState(RESPONSAVEL_PADRAO);
@@ -61,6 +64,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
   const totalPaginas = Math.max(1, Math.ceil(transacoes.length / 50));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
   const ordenadas = [...transacoes].sort((a, b) => b.data_transacao.localeCompare(a.data_transacao) || a.id.localeCompare(b.id));
+  const transacoesDaPagina = ordenadas.slice(paginaAtual * 50, (paginaAtual + 1) * 50);
   const responsaveisDisponiveis = useMemo(() => [...new Set([
     ...RESPONSAVEIS,
     ...transacoes.map(transaction => transaction.responsavel?.trim())
@@ -71,6 +75,14 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     () => categoriasList.filter(item => item.tipo === tipoCategoria),
     [categoriasList, tipoCategoria],
   );
+  const nomesCategorias = useMemo(() => [...new Set(categoriasDisponiveis
+    .map(item => item.nome.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR')), [categoriasDisponiveis]);
+  const registrosCategoria = useMemo(() => categoriasDisponiveis
+    .filter(item => item.nome.trim() === categoria), [categoriasDisponiveis, categoria]);
+  const subcategoriasDisponiveis = useMemo(() => [...new Set(registrosCategoria
+    .map(item => item.subcategoria?.trim()).filter((value): value is string => Boolean(value)))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR')), [registrosCategoria]);
 
   // Estado do Toast
   const [toast, setToast] = useState<{ visible: boolean; transacao: Transacao | null }>({ visible: false, transacao: null });
@@ -80,11 +92,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     if (t) {
       setEditandoId(t.id);
       setDescricao(t.descricao);
+      setDetalhes(t.detalhes ?? '');
       setValorTotal(t.valor.toString());
       setTipo(t.tipo);
       setDataTransacao(t.data_transacao.split('T')[0]);
-      setCategoriaId(categoriasList.find(item => item.nome === t.categoria
-        && (item.subcategoria?.trim() || '') === (t.subcategoria?.trim() || ''))?.id ?? '');
       setCategoria(t.categoria || '');
       setSubcategoria(t.subcategoria || '');
       setResponsavel(t.responsavel?.toLocaleLowerCase('pt-BR') === 'eu' ? RESPONSAVEL_PADRAO : t.responsavel || RESPONSAVEL_PADRAO);
@@ -97,10 +108,10 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     } else {
       setEditandoId(null);
       setDescricao('');
+      setDetalhes('');
       setValorTotal('');
       setTipo('despesa');
       setDataTransacao(localDate());
-      setCategoriaId('');
       setCategoria('');
       setSubcategoria('');
       setResponsavel(RESPONSAVEL_PADRAO);
@@ -150,7 +161,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
     try {
       if (!descricao.trim() || !responsavel.trim() || !validDate(dataTransacao)) throw new Error('Preencha a descrição, o responsável e uma data válida.');
       const payloadBase = {
-        user_id: userId, descricao: descricao.trim(), valor: moneyInput(valorTotal), tipo,
+        user_id: userId, descricao: descricao.trim(), detalhes: detalhes.trim() || null, valor: moneyInput(valorTotal), tipo,
         categoria: categoria || 'Geral', subcategoria: subcategoria.trim() || null,
         responsavel: responsavel.trim(), icone,
         cartao_id: tipo === 'receita' ? null : cartaoId || null,
@@ -159,7 +170,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       if (editandoId) {
         if (caixinhaId) {
           await editarDespesaCaixinha(supabase, {
-            transacaoId: editandoId, descricao, valor: valorTotal, dataTransacao,
+            transacaoId: editandoId, descricao, detalhes, valor: valorTotal, dataTransacao,
             categoria: payloadBase.categoria, subcategoria: payloadBase.subcategoria,
             responsavel, icone, orcamentoId: payloadBase.orcamento_id,
           });
@@ -170,7 +181,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
       } else {
         if (tipo === 'despesa' && caixinhaId) {
           await registrarDespesaCaixinha(supabase, {
-            caixinhaId, descricao, valor: valorTotal, dataTransacao,
+            caixinhaId, descricao, detalhes, valor: valorTotal, dataTransacao,
             categoria: payloadBase.categoria, subcategoria: payloadBase.subcategoria,
             responsavel, icone, orcamentoId: payloadBase.orcamento_id,
           });
@@ -212,21 +223,32 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
           <p className="text-slate-500 text-sm italic text-center py-8">Nenhuma transação registrada ainda.</p>
         ) : (
           <div className="space-y-3">
-            {ordenadas.slice(paginaAtual * 50, (paginaAtual + 1) * 50).map((t) => {
+            {transacoesDaPagina.map((t, index) => {
               const isReceita = t.tipo === 'receita';
+              const dia = t.data_transacao.slice(0, 10);
+              const iniciaDia = index === 0 || transacoesDaPagina[index - 1].data_transacao.slice(0, 10) !== dia;
               const IconeCard = ICONES_TRANSACOES[t.icone || 'tag'] || Tag;
               const cartaoVinculado = cartoesList.find(c => c.id === t.cartao_id);
               const caixinhaVinculada = caixinhasList.find(c => c.id === t.caixinha_id);
               const orcamentoVinculado = orcamentosList.find(item => item.id === t.orcamento_id);
 
               return (
-                <article key={t.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
+                <React.Fragment key={t.id}>
+                {iniciaDia && <div className="flex items-center gap-3 pt-2 first:pt-0">
+                  <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    {formatadorDia.format(new Date(`${dia}T00:00:00Z`))}
+                  </h3>
+                  <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
+                </div>}
+                <article className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all shadow-sm">
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-xl flex items-center justify-center ${isReceita ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                       <IconeCard size={20} />
                     </div>
                     <div>
                       <h4 className="font-semibold text-slate-800">{t.descricao}</h4>
+                      {t.detalhes && <p className="mt-0.5 text-sm text-slate-500">{t.detalhes}</p>}
                       <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
                         <span>{new Date(t.data_transacao).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
                         {t.categoria && <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md"><Tag size={12} /> {t.categoria}{t.subcategoria ? ` · ${t.subcategoria}` : ''}</span>}
@@ -248,6 +270,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                     </div>
                   </div>
                 </article>
+                </React.Fragment>
               );
             })}
           </div>
@@ -272,8 +295,12 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
             <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label htmlFor="transacoespage-field-0" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Descrição</label>
-                  <input id="transacoespage-field-0" type="text" required value={descricao} onChange={(e) => setDescricao(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                  <label htmlFor="transacoespage-field-0" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Título</label>
+                  <input id="transacoespage-field-0" type="text" required maxLength={120} value={descricao} onChange={(e) => setDescricao(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                </div>
+                <div className="md:col-span-2">
+                  <label htmlFor="transacoespage-details" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Descrição (Opcional)</label>
+                  <textarea id="transacoespage-details" maxLength={500} rows={3} value={detalhes} onChange={(e) => setDetalhes(e.target.value)} className="w-full resize-y px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Adicione informações sobre esta transação" />
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-1" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Valor {editandoId ? '' : 'Total'} (R$)</label>
@@ -287,7 +314,7 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                   <label htmlFor="transacoespage-field-3" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Tipo</label>
                   <select id="transacoespage-field-3" value={tipo} disabled={Boolean(editandoId && caixinhaId)} onChange={(e) => {
                     const nextType = e.target.value === 'receita' ? 'receita' : e.target.value === 'fatura_cartao' ? 'fatura_cartao' : 'despesa';
-                    setTipo(nextType); setCategoriaId(''); setCategoria(''); setSubcategoria(''); setCaixinhaId(''); setOrcamentoId('');
+                    setTipo(nextType); setCategoria(''); setSubcategoria(''); setCaixinhaId(''); setOrcamentoId('');
                   }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
                     <option value="despesa">Despesa (Saída)</option>
                     <option value="receita">Receita (Entrada)</option>
@@ -303,15 +330,33 @@ export function TransacoesPage({ userId, transacoes, isLoading, onRefresh }: Tra
                 </div>
                 <div>
                   <label htmlFor="transacoespage-field-5" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Categoria</label>
-                  <select id="transacoespage-field-5" value={categoriaId} onChange={(e) => {
-                    setCategoriaId(e.target.value);
-                    const selected = categoriasList.find(item => item.id === e.target.value);
-                    setCategoria(selected?.nome ?? '');
-                    setSubcategoria(selected?.subcategoria?.trim() ?? '');
-                    setOrcamentoId(tipo === 'despesa' ? selected?.orcamento_id ?? '' : '');
+                  <select id="transacoespage-field-5" value={categoria} onChange={(e) => {
+                    const nextCategory = e.target.value;
+                    const categoryRows = categoriasDisponiveis.filter(item => item.nome.trim() === nextCategory);
+                    const categoryOnly = categoryRows.find(item => !item.subcategoria?.trim());
+                    const budgets = new Set(categoryRows.map(item => item.orcamento_id ?? ''));
+                    setCategoria(nextCategory);
+                    setSubcategoria('');
+                    setOrcamentoId(tipo === 'despesa'
+                      ? categoryOnly?.orcamento_id ?? (budgets.size === 1 ? [...budgets][0] : '')
+                      : '');
                   }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     <option value="">Geral</option>
-                    {categoriasDisponiveis.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.subcategoria ? `(${c.subcategoria})` : ''}</option>)}
+                    {categoria && !nomesCategorias.includes(categoria) && <option value={categoria}>{categoria} (não cadastrada)</option>}
+                    {nomesCategorias.map(nomeCategoria => <option key={nomeCategoria} value={nomeCategoria}>{nomeCategoria}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="transacoespage-subcategory" className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">Subcategoria</label>
+                  <select id="transacoespage-subcategory" value={subcategoria} required={subcategoriasDisponiveis.length > 0} disabled={!categoria || subcategoriasDisponiveis.length === 0} onChange={(e) => {
+                    const nextSubcategory = e.target.value;
+                    const selected = registrosCategoria.find(item => item.subcategoria?.trim() === nextSubcategory);
+                    setSubcategoria(nextSubcategory);
+                    setOrcamentoId(tipo === 'despesa' ? selected?.orcamento_id ?? '' : '');
+                  }} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
+                    <option value="">{subcategoriasDisponiveis.length ? 'Selecione uma subcategoria' : 'Sem subcategorias cadastradas'}</option>
+                    {subcategoria && !subcategoriasDisponiveis.includes(subcategoria) && <option value={subcategoria}>{subcategoria} (não cadastrada)</option>}
+                    {subcategoriasDisponiveis.map(nomeSubcategoria => <option key={nomeSubcategoria} value={nomeSubcategoria}>{nomeSubcategoria}</option>)}
                   </select>
                 </div>
                 {tipo === 'despesa' && <div>

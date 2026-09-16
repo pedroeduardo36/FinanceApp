@@ -36,10 +36,10 @@ function Conta({ session }: { session: Session }) {
   };
   const renderContent = () => {
     switch (activeTab) {
-      case 'painel': return <PainelPage transacoes={transacoes} />;
+      case 'painel': return <PainelPage userId={userId} transacoes={transacoes} />;
       case 'transacoes': return <TransacoesPage userId={userId} transacoes={transacoes} isLoading={loading} onRefresh={reload} />;
       case 'cartoes': return <CartoesPage userId={userId} transacoes={transacoes} />;
-      case 'recorrentes': return <CompromissosPage userId={userId} />;
+      case 'recorrentes': return <CompromissosPage userId={userId} onRefreshTransacoes={reload} />;
       case 'economias': return <EconomiasPage userId={userId} transacoes={transacoes} onRefreshTransacoes={reload} />;
       case 'orcamentos': return <OrcamentosPage userId={userId} transacoes={transacoes} />;
       case 'relatorios': return <RelatoriosPage transacoes={transacoes} />;

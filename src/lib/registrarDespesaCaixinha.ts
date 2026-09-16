@@ -1,6 +1,7 @@
 interface DespesaCaixinha {
   caixinhaId: string;
   descricao: string;
+  detalhes: string | null;
   valor: string;
   dataTransacao: string;
   categoria: string;
@@ -23,6 +24,7 @@ interface ClienteDespesaCaixinha {
       p_responsavel: string;
       p_icone: string;
       p_orcamento_id: string | null;
+      p_detalhes: string | null;
     },
   ) => PromiseLike<{ error: { message: string } | null }>;
 }
@@ -60,6 +62,7 @@ export async function registrarDespesaCaixinha(cliente: ClienteDespesaCaixinha, 
       p_responsavel: despesa.responsavel.trim(),
       p_icone: despesa.icone,
       p_orcamento_id: despesa.orcamentoId || null,
+      p_detalhes: despesa.detalhes?.trim() || null,
     });
   } catch {
     throw new Error(mensagemFalha);

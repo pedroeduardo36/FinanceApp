@@ -4,7 +4,7 @@ import { registrarDespesaCaixinha } from '../src/lib/registrarDespesaCaixinha.ts
 
 const despesa = {
   caixinhaId: '00000000-0000-0000-0000-000000000010',
-  descricao: 'Material escolar', valor: '25.90', dataTransacao: '2026-09-14',
+  descricao: 'Material escolar', detalhes: 'Compra para a escola', valor: '25.90', dataTransacao: '2026-09-14',
   categoria: 'Educação', subcategoria: 'Material', responsavel: 'Pedro', icone: 'tag',
   orcamentoId: '00000000-0000-0000-0000-000000000020',
 };
@@ -18,7 +18,7 @@ test('envia uma única RPC com os dados da despesa e sem user_id', async () => {
     p_caixinha_id: despesa.caixinhaId,
     p_descricao: 'Material escolar', p_valor: '25.90', p_data_transacao: '2026-09-14',
     p_categoria: 'Educação', p_subcategoria: 'Material', p_responsavel: 'Pedro', p_icone: 'tag',
-    p_orcamento_id: despesa.orcamentoId,
+    p_orcamento_id: despesa.orcamentoId, p_detalhes: despesa.detalhes,
   }]]);
 });
 

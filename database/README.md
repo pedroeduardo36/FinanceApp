@@ -83,6 +83,19 @@ A tabela `caixinha_movimentos` usa RLS: o usuário autenticado lê somente seus 
 diretas são bloqueadas. As inserções, alterações e exclusões são feitas pelas funções de movimentação,
 que ativam a permissão interna somente durante a transação corrente.
 
+## Título e descrição das transações
+
+Depois de `caixinha_historico_edicao.sql`, execute `transacao_descricao.sql`. O script mantém a coluna
+`descricao` existente como título e adiciona `detalhes` para a descrição opcional. Também amplia as RPCs
+de despesas pagas com caixinha, mantendo título, descrição, saldo e histórico na mesma transação do banco.
+Transações antigas são preservadas e permanecem com `detalhes` vazio.
+
+## Parcelas e pagamentos de compromissos
+
+Depois de `transacao_descricao.sql`, execute `compromissos_parcelas_pagamentos.sql`. Ele permite valor
+variável, adiciona parcelas restantes e instala a função `marcar_compromisso_pago`. A função cria a
+despesa do mês e reduz uma parcela na mesma transação do Postgres, recusando pagamentos duplicados.
+
 `movimentar_caixinha.sql` deve ser aplicado **antes de publicar o frontend** desta alteração.
 Sem a função, depósitos e resgates falham sem executar as antigas gravações separadas.
 O script cria somente a função e suas permissões; não cria tabelas nem modifica políticas existentes.

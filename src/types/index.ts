@@ -3,17 +3,19 @@ export interface Cartao {
   limite: number; banco?: string | null; cor: string; tipo: 'credito' | 'debito';
 }
 export interface Transacao {
-  id: string; user_id: string; descricao: string; valor: number; data_transacao: string;
+  id: string; user_id: string; descricao: string; detalhes?: string | null; valor: number; data_transacao: string;
   tipo: 'receita' | 'despesa' | 'fatura_cartao'; categoria?: string | null;
   subcategoria?: string | null;
   parcela_atual?: number | null; total_parcelas?: number | null;
   responsavel?: string | null; icone?: string | null; cartao_id?: string | null;
   caixinha_id?: string | null;
   orcamento_id?: string | null;
+  compromisso_id?: string | null; competencia_compromisso?: string | null;
 }
 export interface Compromisso {
-  id: string; user_id: string; descricao: string; valor: number; dia_vencimento: number;
+  id: string; user_id: string; descricao: string; valor: number | null; dia_vencimento: number;
   categoria?: string | null; responsavel?: string | null;
+  parcelas_restantes?: number | null; competencia_inicio?: string;
 }
 export interface Categoria {
   id: string; user_id: string; nome: string; subcategoria?: string | null;

@@ -1,4 +1,4 @@
-import type { CaixinhaMovimento, Transacao } from '../types/index.ts';
+import type { CaixinhaMovimento, Compromisso, Transacao } from '../types/index.ts';
 
 export function localDate(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -90,6 +90,41 @@ export function shiftMonth(month: string, offset: number): string {
   return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function monthDistance(from: string, to: string): number {
+  const [fromYear, fromMonth] = from.split('-').map(Number);
+  const [toYear, toMonth] = to.split('-').map(Number);
+  return (toYear - fromYear) * 12 + toMonth - fromMonth;
+}
+
+export function monthlyProjection(transacoes: Transacao[], compromissos: Compromisso[], month: string, currentMonth: string) {
+  const { start, end } = monthBounds(month);
+  const monthTransactions = transacoes.filter(item => {
+    const date = item.data_transacao.slice(0, 10);
+    return date >= start && date <= end;
+  });
+  const paidIds = new Set(monthTransactions.map(item => item.compromisso_id).filter(Boolean));
+  const currentPaidIds = new Set(transacoes.filter(item => item.competencia_compromisso?.slice(0, 7) === currentMonth)
+    .map(item => item.compromisso_id).filter(Boolean));
+  const offset = monthDistance(currentMonth, month);
+  const projectedCommitments = offset < 0 ? [] : compromissos.filter(item => {
+    if ((item.competencia_inicio?.slice(0, 7) ?? currentMonth) > month || item.parcelas_restantes === 0 || paidIds.has(item.id)) return false;
+    if (item.parcelas_restantes == null) return true;
+    const futurePosition = offset - (currentPaidIds.has(item.id) ? 1 : 0);
+    return futurePosition >= 0 && futurePosition < item.parcelas_restantes;
+  });
+  const transactionIncome = sumMoney(monthTransactions.filter(item => item.tipo === 'receita').map(item => item.valor));
+  const transactionExpense = sumMoney(monthTransactions.filter(item => item.tipo !== 'receita').map(item => item.valor));
+  const commitmentExpense = sumMoney(projectedCommitments.flatMap(item => item.valor == null ? [] : [item.valor]));
+  return {
+    transactions: monthTransactions,
+    commitments: projectedCommitments,
+    income: transactionIncome,
+    expense: sumMoney([transactionExpense, commitmentExpense]),
+    balance: sumMoney([transactionIncome, -transactionExpense, -commitmentExpense]),
+    variableCommitments: projectedCommitments.filter(item => item.valor == null).length,
+  };
+}
+
 export function monthlyIncome(rows: Transacao[], month: string): Transacao[] {
   const { start, end } = monthBounds(month);
   return rows.filter(row => {
@@ -170,7 +205,11 @@ export function summarize(rows: Transacao[], start: string, end: string, type = 
       const name = row[key] || 'Não definido';
       groups.set(name, [...(groups.get(name) ?? []), row.valor]);
     }
-    return [...groups].map(([name, values]) => ({ name, value: sumMoney(values) })).sort((a, b) => b.value - a.value);
+    return [...groups].map(([name, values]) => ({
+      name: key === 'responsavel' && name === 'Ambos' ? 'Compartilhado' : name,
+      value: sumMoney(values),
+      details: expenses.filter(row => (row[key] || 'Não definido') === name),
+    })).sort((a, b) => b.value - a.value);
   };
   return { totalReceitas, totalDespesas, saldoLiquido: sumMoney([totalReceitas, -totalDespesas]),
     dadosPizza: group('categoria'), dadosResponsaveis: group('responsavel'), dadosTimeline: timeline(filtered),
