@@ -1,1 +1,0 @@
-import{g as e,y as t}from"./index-Dkk-0uV-.js";import{s as n}from"./finance-dbDhtD3i.js";var r=t(e(),1);function i(){let[e,t]=(0,r.useState)(n);return(0,r.useEffect)(()=>{let e=()=>t(n()),r=window.setInterval(e,3e4);return window.addEventListener(`focus`,e),()=>{clearInterval(r),window.removeEventListener(`focus`,e)}},[]),e}export{i as t};
