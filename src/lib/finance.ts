@@ -189,6 +189,40 @@ export function percentageFromAmount(total: number, amount: number): number {
   return Number(numerator / BigInt(totalCents)) / 1_000_000;
 }
 
+export function rebalanceBudgetPercentages(
+  allocations: { id: string; percentage: number }[], selectedId: string, selectedPercentage: number,
+): Record<string, number> {
+  const scale = 1_000_000;
+  const totalUnits = 100 * scale;
+  const toUnits = (percentage: number) => {
+    const units = Math.round(percentage * scale);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100
+      || Math.abs(percentage * scale - units) > 1e-6) throw new Error('Porcentagem inválida.');
+    return units;
+  };
+  const selectedUnits = toUnits(selectedPercentage);
+  const others = allocations.filter(item => item.id !== selectedId)
+    .map(item => ({ id: item.id, units: toUnits(item.percentage) }));
+  if (!allocations.some(item => item.id === selectedId)) throw new Error('Orçamento inválido.');
+  if (!others.length) return { [selectedId]: selectedUnits / scale };
+
+  const remainingUnits = totalUnits - selectedUnits;
+  const previousTotal = others.reduce((sum, item) => sum + item.units, 0);
+  const shares = others.map((item, index) => {
+    const numerator = previousTotal > 0
+      ? BigInt(remainingUnits) * BigInt(item.units)
+      : BigInt(remainingUnits);
+    const denominator = BigInt(previousTotal > 0 ? previousTotal : others.length);
+    return { id: item.id, index, units: Number(numerator / denominator), remainder: numerator % denominator };
+  });
+  let undistributed = remainingUnits - shares.reduce((sum, item) => sum + item.units, 0);
+  for (const share of [...shares].sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1)) {
+    if (undistributed-- <= 0) break;
+    share.units += 1;
+  }
+  return Object.fromEntries([[selectedId, selectedUnits / scale], ...shares.map(item => [item.id, item.units / scale])]);
+}
+
 export function summarize(rows: Transacao[], start: string, end: string, type = 'todos', responsible = 'Todos') {
   const valid = validDate(start) && validDate(end) && start <= end;
   const filtered = valid ? rows.filter(t => {

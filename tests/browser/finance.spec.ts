@@ -91,6 +91,7 @@ test('falha de gravação mantém formulário aberto e não revela erro interno'
  await expect(page.getByText('INTERNAL_SECRET')).toHaveCount(0);
 });
 test('logout e resposta atrasada de A não expõem dados na conta B',async({page})=>{
+ await page.clock.setFixedTime(new Date('2026-09-30T15:00:00Z'));
  let release!:()=>void;
  const delayed=new Promise<void>(resolve=>{release=resolve;});
  await mockApi(page,false,delayed); await page.goto(''); await login(page);
@@ -112,6 +113,7 @@ test('navegação usa histórico e links diretos',async({page})=>{
 });
 
 test('orçamentos exibem a origem das entradas e preservam percentuais por mês',async({page})=>{
+ await page.clock.setFixedTime(new Date('2026-09-30T15:00:00Z'));
  await mockApi(page); await page.goto('#orcamentos'); await login(page);
  await expect(page.getByRole('heading',{name:'Orçamentos',exact:true})).toBeVisible();
  const incomeTable=page.getByRole('table',{name:/Origem das entradas/});
@@ -131,16 +133,23 @@ test('orçamentos exibem a origem das entradas e preservam percentuais por mês'
  await expect(moradia.getByText('R$ 30,00',{exact:true})).toBeVisible();
  await expect(moradia.getByText('-R$ 5,00',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Ir para o próximo mês'}).click();
- await expect(moradia.getByLabel('Porcentagem')).toHaveValue('0');
+ await expect(moradia.getByLabel('Porcentagem')).toHaveValue('25');
+ await moradia.getByLabel('Porcentagem').fill('10');
  await page.getByRole('button',{name:'Ir para o mês anterior'}).click();
  await expect(moradia.getByLabel('Porcentagem')).toHaveValue('25');
+ await page.getByRole('button',{name:'Ir para o próximo mês'}).click();
+ await expect(moradia.getByLabel('Porcentagem')).toHaveValue('10');
+ await page.getByRole('button',{name:'Ir para o mês anterior'}).click();
  const budget=page.locator('article').filter({hasText:'Moradia'});
+ const leisure=page.locator('article').filter({hasText:'Lazer'});
  await budget.getByRole('button',{name:'Valor',exact:true}).click();
  await budget.getByLabel('Valor específico').fill('50');
  await expect(budget.getByText('50%',{exact:true})).toBeVisible();
+ await expect(leisure.getByLabel('Porcentagem')).toHaveValue('50');
+ await expect(page.getByText('100% · R$\u00a0100,00',{exact:true})).toBeVisible();
  const saved=page.waitForRequest(request => request.method()==='POST' && request.url().includes('/rest/v1/orcamento_percentuais'));
  await page.getByRole('button',{name:'Salvar porcentagens'}).click();
- expect((await saved).postDataJSON()[0].percentual).toBe(50);
+ expect((await saved).postDataJSON().map((item:{percentual:number})=>item.percentual)).toEqual([50,50]);
 });
 
 
@@ -263,6 +272,7 @@ test('nova caixinha pode ser criada com um valor inicial', async ({page}) => {
 });
 
 test('compromisso aceita parcelas, valor variável e gera a transação ao ser pago',async({page})=>{
+  await page.clock.setFixedTime(new Date('2026-09-30T15:00:00Z'));
   await mockApi(page); await page.goto('#recorrentes'); await login(page);
   await page.getByRole('button',{name:'Novo Compromisso'}).click();
   let dialog=page.getByRole('dialog',{name:'Compromisso'});
@@ -281,7 +291,11 @@ test('compromisso aceita parcelas, valor variável e gera a transação ao ser p
 });
 
 test('painel navega entre meses e projeta compromissos futuros',async({page})=>{
+  await page.clock.setFixedTime(new Date('2026-09-30T15:00:00Z'));
   await mockApi(page); await page.goto('#painel'); await login(page);
+  await expect(page.getByRole('heading',{name:'Saldo atual da conta'})).toBeVisible();
+  await expect(page.getByText('R$\u00a055,00',{exact:true})).toBeVisible();
+  await expect(page.getByText('Movimentações realizadas até hoje',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Próximo mês'}).click();
   await expect(page.getByText('outubro 2026',{exact:true})).toBeVisible();
   await expect(page.getByText('Internet de teste',{exact:true})).toBeVisible();
@@ -289,6 +303,7 @@ test('painel navega entre meses e projeta compromissos futuros',async({page})=>{
 });
 
 test('relatório detalha gastos por responsável e compartilhados ao passar o mouse',async({page})=>{
+  await page.clock.setFixedTime(new Date('2026-09-30T15:00:00Z'));
   await mockApi(page); await page.goto('#relatorios'); await login(page);
   await page.getByRole('button',{name:'Compartilhado',exact:true}).hover();
   const details=page.getByRole('dialog',{name:'Despesas de Compartilhado'});

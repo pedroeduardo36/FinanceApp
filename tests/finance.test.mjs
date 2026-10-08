@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, budgetIncomeRows, savingsMonthlyHistory, monthlyProjection } from '../src/lib/finance.ts';
+import { installments, sumMoney, summarize, accountBalance, localDate, moneyInput, monthBounds, shiftMonth, monthlyIncome, budgetAmount, percentageFromAmount, rebalanceBudgetPercentages, budgetIncomeRows, savingsMonthlyHistory, monthlyProjection } from '../src/lib/finance.ts';
 import { collectPages, requireMutation, requestSequence } from '../src/lib/dataCore.ts';
 const row = (date, value, type = 'receita', extra = {}) => ({ id: date, user_id: 'a', descricao: 'Teste', data_transacao: date, valor: value, tipo: type, ...extra });
 
@@ -72,6 +72,19 @@ test('valor específico calcula uma porcentagem precisa e reconstrói o valor in
   assert.equal(budgetAmount(2427.5, percentage), 100);
   assert.equal(percentageFromAmount(100, 0), 0);
   assert.throws(() => percentageFromAmount(0, 10), /Não há entradas/);
+});
+test('valor específico redistribui as demais porcentagens proporcionalmente até 100%', () => {
+  assert.deepEqual(rebalanceBudgetPercentages([
+    { id:'a', percentage:50 }, { id:'b', percentage:30 }, { id:'c', percentage:20 },
+  ], 'a', 40), { a:40, b:36, c:24 });
+  assert.deepEqual(rebalanceBudgetPercentages([
+    { id:'a', percentage:0 }, { id:'b', percentage:0 }, { id:'c', percentage:0 },
+  ], 'a', 25), { a:25, b:37.5, c:37.5 });
+  const rounded = rebalanceBudgetPercentages([
+    { id:'a', percentage:1 }, { id:'b', percentage:1 }, { id:'c', percentage:1 },
+  ], 'a', 33.333333);
+  assert.equal(Object.values(rounded).reduce((sum, percentage) => sum + percentage, 0), 100);
+  assert.throws(() => rebalanceBudgetPercentages([{id:'a',percentage:100}], 'a', 100.000001));
 });
 test('histórico da caixinha resume entradas, saídas e saldo acumulado por mês', () => {
   const history = savingsMonthlyHistory([

@@ -5,7 +5,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Feedback } from '@/components/ui/Feedback';
 import { useRows } from '@/hooks/useRows';
 import { requireMutation } from '@/lib/dataCore';
-import { budgetAmount, budgetIncomeRows, currency, dateLabel, moneyInput, monthlyIncome, percentageFromAmount, shiftMonth, sumMoney } from '@/lib/finance';
+import { budgetAmount, budgetIncomeRows, currency, dateLabel, moneyInput, monthlyIncome, percentageFromAmount, rebalanceBudgetPercentages, shiftMonth, sumMoney } from '@/lib/finance';
 import { supabase } from '@/lib/supabase';
 import type { BudgetIncomeRow } from '@/lib/finance';
 import type { Transacao } from '@/types';
@@ -95,11 +95,17 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
   const { data: budgets, loading: budgetsLoading, error: budgetsError, reload: reloadBudgets } = useRows('orcamentos', userId);
   const { data: percentages, loading: percentagesLoading, error: percentagesError, reload: reloadPercentages } = useRows('orcamento_percentuais', userId);
 
-  const monthPercentages = useMemo(() => new Map(percentages
-    .filter(item => item.competencia.slice(0, 7) === month)
+  const monthPercentageRows = useMemo(() => percentages
+    .filter(item => item.competencia.slice(0, 7) === month), [percentages, month]);
+  const monthPercentages = useMemo(() => new Map(monthPercentageRows
+    .map(item => [item.orcamento_id, item.percentual])), [monthPercentageRows]);
+  const previousMonthPercentages = useMemo(() => new Map(percentages
+    .filter(item => item.competencia.slice(0, 7) === shiftMonth(month, -1))
     .map(item => [item.orcamento_id, item.percentual])), [percentages, month]);
   const draftFor = (budgetId: string): AllocationDraft => drafts[month]?.[budgetId]
-    ?? { mode: 'percentage', value: String(monthPercentages.get(budgetId) ?? 0) };
+    ?? { mode: 'percentage', value: String(monthPercentages.get(budgetId)
+      ?? (monthPercentageRows.length === 0 ? previousMonthPercentages.get(budgetId) : undefined)
+      ?? 0) };
   const updateDraft = (budgetId: string, draft: AllocationDraft) => setDrafts(current => ({
     ...current, [month]: { ...current[month], [budgetId]: draft },
   }));
@@ -132,6 +138,29 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
       return { budget, draft, percentage, amount, spent, remaining: sumMoney([amount, -spent]), valid: true };
     } catch { return { budget, draft, percentage: 0, amount: 0, spent: spendingByBudget.get(budget.id) ?? 0, remaining: 0, valid: false }; }
   });
+  const updateAmountDraft = (budgetId: string, value: string) => {
+    const selectedDraft: AllocationDraft = { mode: 'amount', value };
+    try {
+      const amount = moneyInput(value.replace(',', '.'), true);
+      const selectedPercentage = percentageFromAmount(totalIncome, amount);
+      const balanced = rebalanceBudgetPercentages(
+        parsedDrafts.map(item => ({ id: item.budget.id, percentage: item.percentage })),
+        budgetId,
+        selectedPercentage,
+      );
+      setDrafts(current => ({
+        ...current,
+        [month]: Object.fromEntries(budgets.map(budget => [
+          budget.id,
+          budget.id === budgetId
+            ? selectedDraft
+            : { mode: 'percentage', value: String(balanced[budget.id]) } satisfies AllocationDraft,
+        ])),
+      }));
+    } catch {
+      updateDraft(budgetId, selectedDraft);
+    }
+  };
   const totalPercentage = parsedDrafts.reduce((sum, item) => sum + item.percentage, 0);
   const totalAmount = sumMoney(parsedDrafts.map(item => item.amount));
   const totalSpent = sumMoney(parsedDrafts.map(item => item.spent));
@@ -179,7 +208,19 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
 
   const changeMonth = (offset: number) => {
     setActionError(null); setMessage(null);
-    setMonth(current => shiftMonth(current, offset));
+    const nextMonth = shiftMonth(month, offset);
+    if (offset > 0 && !drafts[nextMonth]
+      && !percentages.some(item => item.competencia.slice(0, 7) === nextMonth)) {
+      setDrafts(current => ({
+        ...current,
+        [nextMonth]: Object.fromEntries(parsedDrafts.map(item => [
+          item.budget.id,
+          { mode: 'percentage', value: String(item.percentage) } satisfies AllocationDraft,
+        ])),
+      }));
+      setMessage(`Distribuição de ${monthLabel(month)} aplicada como ponto de partida.`);
+    }
+    setMonth(nextMonth);
   };
   const isLoading = budgetsLoading || percentagesLoading;
 
@@ -261,7 +302,7 @@ export function OrcamentosPage({ userId, transacoes }: OrcamentosPageProps) {
             </div>
             <label htmlFor={`budget-${budget.id}`} className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">{draft.mode === 'percentage' ? 'Porcentagem' : 'Valor específico'}</label>
             <div className="flex items-center gap-3">
-              <div className="relative flex-1"><input id={`budget-${budget.id}`} type="number" min="0" max={draft.mode === 'percentage' ? 100 : undefined} step="0.01" inputMode="decimal" value={draft.value} onChange={event => updateDraft(budget.id, { ...draft, value: event.target.value })} aria-invalid={!valid} className={`w-full rounded-lg border border-slate-300 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${draft.mode === 'amount' ? 'px-9 pr-3' : 'px-3 pr-9'}`} />
+              <div className="relative flex-1"><input id={`budget-${budget.id}`} type="number" min="0" max={draft.mode === 'percentage' ? 100 : undefined} step="0.01" inputMode="decimal" value={draft.value} onChange={event => draft.mode === 'amount' ? updateAmountDraft(budget.id, event.target.value) : updateDraft(budget.id, { ...draft, value: event.target.value })} aria-invalid={!valid} className={`w-full rounded-lg border border-slate-300 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${draft.mode === 'amount' ? 'px-9 pr-3' : 'px-3 pr-9'}`} />
                 <span className={`pointer-events-none absolute top-2 text-slate-500 ${draft.mode === 'amount' ? 'left-3' : 'right-3'}`}>{draft.mode === 'amount' ? 'R$' : '%'}</span>
               </div>
               <strong className="min-w-28 text-right text-lg text-emerald-700">{valid ? draft.mode === 'amount' ? `${percentage.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}%` : currency(amount) : '—'}</strong>

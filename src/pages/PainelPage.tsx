@@ -1,11 +1,11 @@
 import { useToday } from '@/hooks/useToday';
-import { dateLabel, monthBounds, monthlyProjection, shiftMonth, sumMoney, summarize } from '@/lib/finance';
+import { accountBalance, dateLabel, monthBounds, monthlyProjection, shiftMonth, sumMoney, summarize } from '@/lib/finance';
 import { useRows } from '@/hooks/useRows';
 import { Feedback } from '@/components/ui/Feedback';
 import { useMemo, useState } from 'react';
 import type { Transacao } from '@/types';
 import {
-  ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, Calendar as CalendarIcon, ChevronLeft, ChevronRight
+  ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Landmark
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -22,6 +22,7 @@ export function PainelPage({ userId, transacoes }: PainelPageProps) {
   const today = useToday();
   const currentMonth = today.slice(0, 7);
   const [mes, setMes] = useState(currentMonth);
+  const saldoAtual = useMemo(() => accountBalance(transacoes, today), [transacoes, today]);
   const { data: compromissos, error: commitmentsError, reload: reloadCommitments } = useRows('compromissos', userId);
   const resumoMes = useMemo(() => {
     const bounds = monthBounds(mes);
@@ -57,7 +58,19 @@ export function PainelPage({ userId, transacoes }: PainelPageProps) {
       </div>
 
       {/* CARDS DE RESUMO */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-2 h-full bg-indigo-500 rounded-r-2xl" />
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Landmark size={20} /></div>
+            <h3 className="text-sm font-medium text-slate-500">Saldo atual da conta</h3>
+          </div>
+          <p className={`text-2xl md:text-3xl font-bold ${saldoAtual >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
+            {formataMoeda(saldoAtual)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Movimentações realizadas até hoje</p>
+        </div>
+
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 w-2 h-full bg-blue-500 rounded-r-2xl" />
           <div className="flex items-center gap-3 mb-2">
